@@ -1,5 +1,3 @@
-"""Output: names a stream as an output of the model."""
-
 from nnodely.core.dag import Table
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
@@ -151,25 +149,20 @@ class Outputs(Table):
     It is a list of the Output objects, in the order the model was declared
     with. Pick one by its name, ``outputs["y"]``, or by its index,
     ``outputs[0]``: the ``idx`` column of the table. Printed, it is a table
-    of their shapes, the stream each names, the Inputs that stream is fed
-    back into and the objectives, called minimizers in the method names,
+    of their shapes, the Inputs the stream of each is fed back into and the
+    objectives, called minimizers in the method names,
     that read it."""
 
-    _HEADER = (
-        "output",
-        "seq",
-        "tw",
-        "dim",
-        "stream",
-        "feeds back",
-        "minimized by",
-    )
+    _HEADER = ("output", "seq", "tw", "dim", "update", "minimized by")
 
     _kind, _attr = "output", "outputs"
 
-    def __init__(self, rows: list[dict]):
-        super().__init__(row["output"] for row in rows)
-        self._rows = rows
+    _rows: list[dict]
+
+    def __new__(cls, rows: list[dict]):
+        table = super().__new__(cls, (row["output"] for row in rows))
+        table._rows = rows
+        return table
 
     def _where(self, index, item) -> str:
         return f"(of {self._rows[index]['stream']!r})"
@@ -181,8 +174,7 @@ class Outputs(Table):
                 _seq_cell(row["output"].seq),
                 "-" if row["output"].tw is None else str(row["output"].tw),
                 str(tuple(row["output"].dim)),
-                row["stream"],
-                ", ".join(row["feeds back"]) or "-",
+                f"-> {', '.join(row['update'])}" if row["update"] else "-",
                 ", ".join(row["minimized by"]) or "-",
             )
             for row in self._rows

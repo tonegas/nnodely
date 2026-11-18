@@ -7,20 +7,20 @@ import keras
 from typing import Any
 
 from nnodely.core.shape import Shape
-from nnodely.core.stream import Stream, object_repr
-from nnodely.core.dag import free_name, next_name
+from nnodely.core.stream import Stream, _object_repr
+from nnodely.core.dag import _free_name, _next_name
 
 
 def _claim_keras_name(layer, taken: dict[str, Any]) -> None:
     """Give ``layer`` a name no other layer of the Keras model being built has.
 
-    Two nnodely layers may share a name - a model and its reloaded copy, or
-    layers named alike by hand - while the layers of one Keras model may not:
+    Two nnodely layers may share a name, as a model and its reloaded copy
+    do, or layers named alike by hand. The layers of one Keras model may not:
     a layer arriving at a name already taken takes the first free suffix. A
     layer applied several times keeps the one name it has.
     """
     if layer.name in taken and taken[layer.name] is not layer:
-        layer.name = free_name(layer.name, taken)
+        layer.name = _free_name(layer.name, taken)
     taken[layer.name] = layer
 
 
@@ -74,8 +74,8 @@ def _are_streams(value) -> bool:
 class _LayerType(type):
     """Lets a layer that takes no configuration be applied as it is created.
 
-    A layer whose constructor takes nothing but ``name`` - ``Sin``, ``Exp``,
-    ``Sigmoid`` - has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
+    A layer whose constructor takes nothing but ``name``, such as ``Sin``,
+    ``Exp`` or ``Sigmoid``, has nothing to configure, so ``Sin(x)`` is ``Sin()(x)`` and
     ``Sin(x, name="s")`` is ``Sin(name="s")(x)``. Every other layer is
     configured first and then called on its streams.
     """
@@ -130,7 +130,7 @@ class Layer(Stream, metaclass=_LayerType):
     Symbolic DAG node that can lazily build its concrete Keras layer.
 
     Called on a stream, or a list of streams, it returns a new node of the
-    graph; :meth:`call` applies the concrete Keras layer to tensors when the
+    graph; ``_call`` applies the concrete Keras layer to tensors when the
     model is built.
     """
 
@@ -151,9 +151,7 @@ class Layer(Stream, metaclass=_LayerType):
     _weight_labels: tuple[str, ...] = ()
     _weight_defaults: dict[str, Any] = {}
 
-    def __init__(
-        self, name=None, preds=None, tw=None, dim=None, seq=None, weights=None, **kwargs
-    ):
+    def __init__(self, name=None, tw=None, dim=None, seq=None, weights=None, **kwargs):
         self._properties = dict(kwargs)
         self._weight_settings = dict(weights or {})
         # The Parameters holding the weights, made or taken on the first call.
@@ -169,10 +167,9 @@ class Layer(Stream, metaclass=_LayerType):
         self._called_shape: Shape | None = None
 
         super().__init__(
-            name=next_name(self.__class__.__name__) if name is None else name,
+            name=_next_name(self.__class__.__name__) if name is None else name,
             dim=dim,
             tw=tw,
-            preds=preds,
             seq=seq,
         )
 
@@ -252,7 +249,7 @@ class Layer(Stream, metaclass=_LayerType):
         """Declare dynamic again the sequence axes probed with one step.
 
         A sequence axis of the result is dynamic where an input with as many
-        sequence axes has a dynamic one - the same rule a product of streams
+        sequence axes has a dynamic one, the same rule a product of streams
         follows. A layer that adds or removes sequence axes is left as probed.
         """
         dynamic = {
@@ -311,11 +308,11 @@ class Layer(Stream, metaclass=_LayerType):
         """
         raise NotImplementedError
 
-    def input_signature(self, xs) -> tuple | None:
+    def _input_signature(self, xs) -> tuple | None:
         """The input shapes a concrete layer was built for.
 
         Weights belong to the shape they were made for, so a layer carried
-        into another graph - a model used as a block brings its own along -
+        into another graph (a model used as a block brings its own along)
         can only be reused where its inputs still look the same. Layers that
         read no input at all (Parameters, Constants) are shape-independent and
         keep a constant signature.
@@ -325,9 +322,9 @@ class Layer(Stream, metaclass=_LayerType):
         try:
             return tuple(tuple(x.shape[1:]) for x in xs)
         except (AttributeError, TypeError):
-            # A layer whose inputs are not plain tensors - a recurrent body
-            # takes structures - cannot be checked this way, and is reused as
-            # it always was.
+            # A layer whose inputs are not plain tensors, such as a recurrent
+            # body, which takes structures, cannot be checked this way. It is
+            # reused as it always was.
             return None
 
     def _copied(self, memo: dict) -> None:
@@ -341,8 +338,8 @@ class Layer(Stream, metaclass=_LayerType):
         computing with Parameters holds none: they are initialized as nodes
         of their own."""
 
-    def call(self, xs):
-        signature = self.input_signature(xs)
+    def _call(self, xs):
+        signature = self._input_signature(xs)
         stale = self._layer_signature is not None and self._layer_signature != signature
         if self._layer is None or stale:
             self._layer = self.build_layer()
@@ -356,17 +353,32 @@ class Layer(Stream, metaclass=_LayerType):
     # ------------------------------------------------------------------
 
     def __call__(self, inputs: Any) -> Any:
-        if not isinstance(inputs, (list, tuple)):
-            inputs = [inputs]
+        inputs = list(inputs) if isinstance(inputs, (list, tuple)) else [inputs]
 
         _refuse_non_streams(self, inputs)
-        if self._weight_labels:
-            return self._call_with_weights(inputs)
-        _refuse_uncalled(inputs)
         if self._one_stream and len(inputs) > 1:
             # A layer that reads one stream, such as an activation, is
-            # applied to each of several: one result per stream, in order.
+            # applied to each of several, with the same weights: one result
+            # per stream, in order.
             return [self([x]) for x in inputs]
+        _refuse_uncalled(inputs)
+        if self._weight_labels:
+            # The weights are predecessors like the input, but configured on
+            # the layer, so they are appended here and reconnected when
+            # reloading. They take the place of any further stream, which
+            # would otherwise be dropped without a word.
+            if not inputs:
+                raise ValueError(
+                    f"{self.name}: {type(self).__name__} reads one stream, got "
+                    "none. Apply it to a stream first."
+                )
+            if len(inputs) > 1:
+                raise ValueError(
+                    f"{self.name}: {type(self).__name__} reads one stream, got "
+                    f"{len(inputs)}. Apply one to each, or join them first, "
+                    "with Concatenate or TimeConcatenate."
+                )
+            inputs = [inputs[0], *self._obtain_weights(inputs[0])]
         return self._apply(inputs)
 
     def _apply(self, inputs) -> Any:
@@ -387,8 +399,8 @@ class Layer(Stream, metaclass=_LayerType):
             node._inputs = inputs
             node.shape = out_shape
             node._preds = inputs  # type: ignore
-            # Computed from values alone - numbers, Parameters, Constants -
-            # a result is a value too.
+            # Computed from values alone (numbers, Parameters, Constants), a
+            # result is a value too.
             node._is_value = all(x._is_value for x in inputs)
             ret.append(node)
         self._source._called_shape = ret[-1].shape
@@ -396,13 +408,13 @@ class Layer(Stream, metaclass=_LayerType):
 
     def __repr__(self) -> str:
         """A stream the layer returned prints as a Stream. The layer itself
-        prints its name, the Parameter of each weight - or, before the first
-        call makes it, its initializer - and the shape its last call
+        prints its name, the Parameter of each weight (or, before the first
+        call makes it, its initializer) and the shape its last call
         returned."""
         if self._source is not self:
             return super().__repr__()
         weights = {label: self._weight_text(label) for label in self._weight_labels}
-        return object_repr(self, name=self.name, **weights, shape=self._called_shape)
+        return _object_repr(self, name=self.name, **weights, shape=self._called_shape)
 
     def _weight_text(self, label: str) -> str | None:
         """What the weight ``label`` prints as: the name of its Parameter, or
@@ -458,45 +470,45 @@ class Layer(Stream, metaclass=_LayerType):
         last axis by all the others, as a dense layer reads its kernel."""
         return (None,) * len(shapes)
 
-    def _call_with_weights(self, inputs) -> Any:
-        if self._one_stream and len(inputs) > 1:
-            # Applied to each stream, with the same weights.
-            return [self([x]) for x in inputs]
-        # The weights are predecessors like the input, but configured on the
-        # layer, so they are appended here and reconnected when reloading.
-        # They take the place of any further stream, which would otherwise be
-        # dropped without a word.
-        if len(inputs) > 1:
-            raise ValueError(
-                f"{self.name}: {type(self).__name__} reads one stream, got "
-                f"{len(inputs)}. Apply one to each, or join them first, "
-                "with Concatenate or TimeConcatenate."
-            )
-        # Before the weights are sized on it.
-        _refuse_uncalled(inputs)
-        if not inputs:
-            raise ValueError(
-                f"{self.name}: {type(self).__name__} reads one stream, got "
-                "none. Apply it to a stream first."
-            )
-        return self._apply([inputs[0], *self._parameters(inputs[0])])
+    def _obtain_weights(self, x) -> list:
+        """Create the weights of the layer on its first call, and return them;
+        on every later call, return the ones already created.
 
-    def _parameters(self, x) -> list:
-        """The Parameters holding the weights for the input ``x``, made on
-        the first call. Each must have the shape the input asks for, axes of
-        size 1 aside: they leave the layout of the values as it is."""
+        The shape of a weight depends on the input: ``Fir(features=2)``
+        cannot make its kernel until it is called on ``x``, whose window
+        sets its length. So they are made on the first call, from what the
+        constructor was given for each label: a Parameter, used as it is;
+        an initializer, or ``True`` for the default one, for a new Parameter
+        ``<layer>_<label>``; ``False`` for none."""
+        from nnodely.layers.parameter import Parameter
+
         shapes = dict(zip(self._weight_labels, self._weight_shapes(x)))
         if self._weight_params is None:
             draws = dict(
                 zip(self._weight_labels, self._draw_shapes(tuple(shapes.values())))
             )
-            self._weight_params = {
-                label: self._weight(
-                    label, self._weight_settings[label], shapes[label], draws[label]
-                )
-                for label in self._weight_labels
-                if self._weight_settings[label] is not False
-            }
+            self._weight_params = {}
+            for label in self._weight_labels:
+                setting = self._weight_settings[label]
+                if setting is False:
+                    continue
+                if not isinstance(setting, Parameter):
+                    if setting is True:
+                        setting = self._weight_defaults[label]
+                    shape, draw = shapes[label], draws[label]
+                    if draw is None:
+                        draw = (
+                            shape
+                            if len(shape) <= 2
+                            else (math.prod(shape[:-1]), shape[-1])
+                        )
+                    setting = Parameter(
+                        f"{self.name}_{label}",
+                        dim=shape,
+                        initializer=setting,
+                        draw=draw,
+                    )
+                self._weight_params[label] = setting
         for label, weight in self._weight_params.items():
             if _without_ones(weight.shape.tuple) != _without_ones(shapes[label]):
                 raise ValueError(
@@ -506,34 +518,13 @@ class Layer(Stream, metaclass=_LayerType):
                 )
         return list(self._weight_params.values())
 
-    def _weight(self, label, setting, shape, draw):
-        """The Parameter holding the weight ``label``: the one given, or one
-        made from the initializer given, named ``<layer>_<label>``: a Weight."""
-        from nnodely.layers.parameter import Parameter, Weight
-
-        if isinstance(setting, Parameter):
-            return setting
-        if setting is True:
-            setting = self._weight_defaults[label]
-        if draw is None:
-            draw = shape if len(shape) <= 2 else (math.prod(shape[:-1]), shape[-1])
-        return Weight(f"{self.name}_{label}", dim=shape, initializer=setting, draw=draw)
-
-    def _weight_nodes(self) -> list:
-        """The Parameters holding the weights, as this node reads them."""
-        return list(self._preds[1:]) if self._weight_labels and self._preds else []
-
-    def _weight_value(self, label: str):
-        """The variable of the Parameter holding the weight ``label``, in
-        that Parameter's shape; None without it or before the model is
-        built."""
-        present = [
-            name
-            for name in self._weight_labels
-            if self._weight_settings[name] is not False
-        ]
-        weight = dict(zip(present, self._weight_nodes())).get(label)
-        return None if weight is None else weight.param
+    @property
+    def weights(self) -> dict:
+        """The Parameters holding its weights, by label, such as
+        ``{"kernel": ..., "bias": ...}``: empty before its first call and for
+        a layer without weights. The same on the layer and on every stream a
+        call of it returns."""
+        return dict(self._source._weight_params or {})
 
 
 class Identity(Layer):

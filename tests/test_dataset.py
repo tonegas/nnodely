@@ -4,7 +4,7 @@ import os
 import warnings
 import numpy as np
 import pytest
-from nnodely import TimeRange, TimeSelect
+from nnodely import SeqSelect, TimeRange, TimeSelect
 
 
 def test_dataset_creation_and_iteration():
@@ -90,7 +90,8 @@ def test_sequence_windows_are_created_on_temporal_windows():
     x_window = x
     output = Output("out", x_window)
     model = Modely("sequence_dataset", inputs=[x], outputs=[output])
-    model.minimize("error", source=output, target=target, loss="mse")
+    last = SeqSelect(-1)([TimeSelect(-1)(x)])  # one sample, as the target
+    model.minimize("error", source=last, target=target, loss="mse")
     model.build()
 
     loader = DataLoader(
@@ -369,6 +370,28 @@ def test_on_short_skips_simulations_that_are_too_short():
         DataLoader(model, source=simulations[1:], on_short="skip")
 
 
+def test_on_short_is_a_member_or_its_string():
+    # Once read only where a simulation was short, so a misspelt choice
+    # silently raised: now checked where it enters.
+    from nnodely import OnShort
+
+    x = Input("on_short_x", dim=1, tw=4)
+    model = Modely(
+        "on_short_model", inputs=[x], outputs=[Output("on_short_out", x)]
+    ).build()
+    simulations = [
+        {"on_short_x": np.arange(1, 6, dtype=np.float32)},
+        {"on_short_x": np.arange(10, 13, dtype=np.float32)},
+    ]
+    by_member = DataLoader(model, source=simulations, on_short=OnShort.SKIP)
+    by_name = DataLoader(model, source=simulations, on_short="skip")
+    np.testing.assert_array_equal(
+        by_member._dataset["on_short_x"], by_name._dataset["on_short_x"]
+    )
+    with pytest.raises(ValueError, match="on_short is 'error' or 'skip', got 'Skip'"):
+        DataLoader(model, source=simulations, on_short="Skip")
+
+
 def test_simulations_are_windowed_independently():
     x = Input("independent_x", dim=1, tw=2)
     model = Modely(
@@ -438,6 +461,36 @@ def test_full_sequence_spans_each_simulation_and_pads():
         loader.mask,
         np.array([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=bool),
     )
+
+
+def test_the_loader_hands_out_its_data_and_a_read_only_mask():
+    # Its own arrays, without a copy: changed through as_dict, the loader
+    # reads the change. The mask is read only.
+    x = Input("ro_x", dim=1, seq=-1, tw=1)
+    model = Modely("ro_model", inputs=[x], outputs=[Output("ro_out", x)]).build()
+    loader = DataLoader(
+        model,
+        source=[
+            {"ro_x": np.arange(1, 6, dtype=np.float32)},
+            {"ro_x": np.arange(10, 13, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+    assert loader.mask is not None
+    with pytest.raises(ValueError, match="read-only"):
+        loader.mask[...] = False
+    with pytest.raises(AttributeError):
+        loader.mask = None  # type: ignore[misc]
+
+    loader.as_dict()["ro_x"][0] = 7.0
+    np.testing.assert_array_equal(loader.get_input("ro_x")[0], 7.0)
+    np.testing.assert_array_equal(loader[0]["ro_x"], 7.0)
+    before = loader.as_dict()["ro_x"].copy()
+    assert not hasattr(loader, "get_step") and not hasattr(loader, "inputs")
+    # get_samples gives copies, to change at will.
+    samples = loader.get_samples(1)
+    samples["ro_x"][...] = 0
+    np.testing.assert_array_equal(loader.as_dict()["ro_x"], before)
 
 
 def test_full_sequence_leaves_the_inner_levels_alone():
@@ -578,7 +631,7 @@ def _samples_model():
     window = x
     pred = Output("samples_pred", TimeSelect(-1)(x) * Parameter(value=[2.0]))
     model = Modely(
-        "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
+        "samples_model", inputs=[x], outputs=[pred, Output("samples_window", window)]
     )
     model.minimize("error", pred, y)
     return model.build()
@@ -779,10 +832,10 @@ def test_windowed_data_round_trips_what_the_loader_builds():
     s = Input("trip_s", seq=3, tw=2)
     model = Modely(
         "trip_model",
-        inputs=[x, y, s],
+        inputs=[x, y],
         outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
     )
-    model.minimize("trip", TimeSelect(-1)(s), TimeSelect(-1)(y))
+    model.minimize("trip", SeqSelect(-1)([TimeSelect(-1)(s)]), TimeSelect(-1)(y))
     model.build()
     signals = {
         "trip_x": np.random.rand(40, 2),
@@ -840,8 +893,8 @@ def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
     assert loader.as_dict()["dyn2_x"].shape == (16, 4, 6, 1, 1)
     assert loader.mask is None
 
-    model.train(loader, epochs=200, batch_size=16, lr=5e-2, printer=None, **CONVERGED)
-    np.testing.assert_allclose(np.ravel(gain.value_numpy), [3.0], atol=1e-2)  # type: ignore
+    model.train(loader, epochs=200, batch_size=16, lr=5e-2, verbose=False, **CONVERGED)
+    np.testing.assert_allclose(np.ravel(gain.value), [3.0], atol=1e-2)  # type: ignore
 
 
 def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():
@@ -905,17 +958,17 @@ def test_windowed_lengths_that_cannot_be_padded_are_rejected():
     assert loader.mask is not None and loader.mask.shape == (4, 5)
 
 
-def test_windowed_modelyloop_matches_the_windows_it_would_build():
-    from nnodely import IntegrateStep, ModelyLoop, Parameter
+def test_windowed_model_loop_matches_the_windows_it_would_build():
+    from nnodely import IntegrateStep, Parameter
 
     force, x, v = Input("wl_F", tw=1), Input("wl_x", tw=1), Input("wl_v", tw=1)
     k = Parameter("wl_k", value=1.0)
     v_next = v.feedback(IntegrateStep(dt=0.1)(v, force - k * x))
     x_next = x.feedback(IntegrateStep(dt=0.1)(x, v_next))
-    model = ModelyLoop(
+    model = Modely(
         "wl_loop", inputs=[force, x, v], outputs=[Output("wl_x_next", x_next)]
-    )
-    model.minimize("wl", "wl_x_next", Input("wl_x_meas", tw=1))
+    ).loop()
+    model.minimize("wl", "wl_x_next", Input("wl_x_meas", seq=-1, tw=1))
     model.build()
     signals = {
         name: np.random.rand(60) for name in ("wl_F", "wl_x", "wl_v", "wl_x_meas")

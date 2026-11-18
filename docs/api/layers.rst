@@ -56,6 +56,7 @@ Tutorials: :doc:`../tutorial/08_fir_linear`,
    Fir
    LocalModel
    EquationLearner
+   EquationFunction
    BatchNorm
 
 Fuzzy sets and lookup tables
@@ -68,10 +69,12 @@ Tutorial: :doc:`../tutorial/09_fuzzify_localmodel`.
    :nosignatures:
 
    Fuzzify
+   MembershipName
    Triangular
    Rectangular
    Gaussian
    Interpolation
+   InterpolationMode
 
 Custom layers
 -------------
@@ -157,13 +160,16 @@ Guide: :doc:`../guide/physics`. Tutorial: :doc:`../tutorial/11_calculus`.
    Derivative
    IntegrateStep
    Integrate
+   IntegrationMethod
    Ode
+   OdeMethod
 
 Recurrence
 ----------
 
-A :class:`Loop` rolls a model out over a sequence. :class:`ModelyLoop`, a
-model declared one step at a time, is with the :doc:`models <model>`.
+A :class:`Loop` rolls a model out over a sequence. :meth:`Modely.loop`, the
+rollout of a model declared one step at a time, is with the
+:doc:`models <model>`.
 
 Guide: :doc:`../guide/recurrent`. Tutorial: :doc:`../tutorial/10_recurrent_loop`.
 
@@ -226,9 +232,7 @@ reaches the loss through them does not train.
    :nosignatures:
 
    Exp
-   Expm1
    Log
-   Log1p
    Log10
    Log2
 

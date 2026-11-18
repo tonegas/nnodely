@@ -16,7 +16,6 @@ from nnodely import (
     Parameter,
 )
 from nnodely import TimeSelect
-from nnodely.layers.parameter import Weight
 
 
 def test_parameter_constant_shapes():
@@ -72,7 +71,7 @@ def test_parameter_and_constant_declaration():
 
     ## constant error
     with pytest.raises(ValueError, match="requires a value"):
-        Constant("no_value", value=None)
+        Constant("no_value", value=None)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="shape error"):
         Constant("error1", value=[1.0, 2.0, 3.0], tw=2, dim=5)
     with pytest.raises(ValueError, match="shape error"):
@@ -177,7 +176,6 @@ def test_parameter_constant_model_inference():
 
     model = Modely("model", inputs=[x], outputs=[out])
     model.build()
-    model.summary()
     from pprint import pprint
 
     print("model order:")
@@ -199,10 +197,10 @@ def test_parameter_constant_model_inference():
     #     [[[2.0]], [[2.0]], [[2.0]], [[2.0]]],
     # )
     # assert np.allclose(result["x_out"], [[[2.0]], [[2.0]], [[2.0]], [[2.0]]])
-    assert constant.constant is not None
-    assert constant.constant.shape == (1,)
+    assert constant.value is not None
+    assert constant.value.shape == (1,)
     np.testing.assert_allclose(
-        to_numpy(constant.constant),
+        constant.value,
         np.array([1.0]),
         rtol=1e-5,
         atol=1e-5,
@@ -244,7 +242,7 @@ def test_parameter_through_a_layer_keeps_the_batch_axis():
 )
 def test_a_value_is_laid_out_dim_tw_seq(value, dimensions):
     # Unless told otherwise, every axis of a value is a dim axis and the value
-    # has no window - for both classes alike. It is held as given.
+    # has no window, for both classes alike. It is held as given.
     for node in (Constant(value=value), Parameter(value=value)):
         assert node.shape.dimensions == dimensions
         assert node.value is not None
@@ -266,7 +264,7 @@ def test_a_value_of_several_axes_is_moved_into_the_declared_order(
     sizes, dimensions, order
 ):
     # seq, tw and dim are sizes, as for an Input: a value has them, in
-    # any order, and is laid out (*seq, tw, *dim) - its axes moved into
+    # any order, and is laid out (*seq, tw, *dim): its axes moved into
     # place, not its values read again in another order.
     values = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
     for node in (Constant(value=values, **sizes), Parameter(value=values, **sizes)):
@@ -491,13 +489,13 @@ def test_only_a_parameter_is_trained():
     trainable = model._keras_model.trainable_weights
     fixed = model._keras_model.non_trainable_weights
     assert any(weight is parameter.param for weight in trainable)
-    assert not any(weight is constant.constant for weight in trainable)
-    assert any(weight is constant.constant for weight in fixed)
+    assert not any(weight is constant.param for weight in trainable)
+    assert any(weight is constant.param for weight in fixed)
 
 
 def test_a_constant_requires_a_value_and_declares_its_sizes_like_a_parameter():
     with pytest.raises(ValueError, match="requires a value"):
-        Constant("no_value", value=None)
+        Constant("no_value", value=None)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="must not be empty"):
         Constant("empty_value", value=[])
     # With a value, dim is a size, as without one.
@@ -615,7 +613,9 @@ def test_a_frozen_parameter_keeps_its_value_through_training():
     )
 
     def step():
-        model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.1, printer=None)
+        model.train(
+            data, epochs=1, batch_size=4, optimizer="sgd", lr=0.1, verbose=False
+        )
 
     a.freeze()
     step()
@@ -825,7 +825,7 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
     # A list of the Parameter objects, in the order the graph reaches them -
     # before the model is built too.
     parameters = model.parameters
-    assert isinstance(parameters, list)
+    assert isinstance(parameters, tuple)
     assert parameters[:2] == [a, b]
     assert [p.name for p in parameters] == ["a", "b", "lin_kernel", "lin_bias", "c"]
 
@@ -846,12 +846,11 @@ def test_model_parameters_lists_every_parameter_and_prints_a_table():
             "└─────┴────────────┴─────┴────┴───────────┴────────┴───────────┘",
         ]
     )
-    # The same items, with the index and the name they are picked by; the
-    # weights a layer made print as Weight, those declared as Parameter.
+    # The same items, with the index and the name they are picked by.
     assert repr(model.parameters).splitlines()[1:4] == [
         "  [0] 'a':          Parameter(name='a', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
         "  [1] 'b':          Parameter(name='b', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
-        "  [2] 'lin_kernel': Weight(name='lin_kernel', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
+        "  [2] 'lin_kernel': Parameter(name='lin_kernel', shape=Shape(S=(), T=None, D=(2, 3, 2))),",
     ]
 
 
@@ -872,7 +871,7 @@ def test_model_parameters_prints_a_table_per_model():
     )
 
     # Still one list, in the order the graph reaches them.
-    assert top.parameters == [shared, frozen]
+    assert list(top.parameters) == [shared, frozen]
     # A model column tells whose each Parameter is, and the rows of each model
     # stand together, between rules. One the model shares with a block it
     # calls is listed once, with the model, the first to reach it. One total,
@@ -921,9 +920,8 @@ def test_the_weights_a_layer_makes_are_parameters_drawn_one_piece_at_a_time():
         "draw_model", inputs=[x, m], outputs=[Output("f", fir), Output("l", lin)]
     ).build()
     kernels = {p.name: p for p in model.parameters}
-    # Made by the layers: Weights, which are Parameters in every way.
-    assert all(type(p) is Weight for p in kernels.values())
-    assert all(isinstance(p, Parameter) for p in kernels.values())
+    # Made by the layers, Parameters as those the user declares.
+    assert all(type(p) is Parameter for p in kernels.values())
 
     fir_kernel = to_numpy(kernels["draw_fir_kernel"].param)
     assert fir_kernel.shape == (40, 5, 1)

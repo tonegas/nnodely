@@ -1,20 +1,19 @@
-"""Composable Equation Learner block."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 import inspect
+from enum import StrEnum
 import re
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import free_name, next_name
+from nnodely.core.dag import _free_name, _next_name
 from nnodely.core.layer import Identity, Layer
 from nnodely.core.modely import Modely
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -33,10 +32,8 @@ from nnodely.layers.arithmetic import (
     Deg2Rad,
     Divide,
     Exp,
-    Expm1,
     Floor,
     Log,
-    Log1p,
     Log10,
     Log2,
     Maximum,
@@ -72,54 +69,124 @@ from nnodely.layers.trigonometric import (
     Tan,
 )
 
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
-_NAMED_FUNCTIONS: dict[str, type[Layer]] = {
-    "identity": Identity,
-    "sin": Sin,
-    "cos": Cos,
-    "tan": Tan,
-    "asin": Asin,
-    "acos": Acos,
-    "atan": Atan,
-    "atan2": Atan2,
-    "sinh": Sinh,
-    "cosh": Cosh,
-    "asinh": Asinh,
-    "acosh": Acosh,
-    "atanh": Atanh,
-    "exp": Exp,
-    "expm1": Expm1,
-    "log": Log,
-    "log1p": Log1p,
-    "log10": Log10,
-    "log2": Log2,
-    "sqrt": Sqrt,
-    "square": Square,
-    "abs": Abs,
-    "sign": Sign,
-    "floor": Floor,
-    "ceil": Ceil,
-    "round": Round,
-    "gaussian": Gaussian,
-    "triangular": Triangular,
-    "rectangular": Rectangular,
-    "relu": ReLU,
-    "leaky_relu": LeakyReLU,
-    "elu": ELU,
-    "prelu": PReLU,
-    "sigmoid": Sigmoid,
-    "tanh": Tanh,
-    "swish": Swish,
-    "gelu": GELU,
-    "softplus": Softplus,
-    "add": Add,
-    "subtract": Subtract,
-    "multiply": Multiply,
-    "divide": Divide,
-    "power": Power,
-    "mod": Mod,
-    "maximum": Maximum,
-    "minimum": Minimum,
+
+class EquationFunction(StrEnum):
+    """The functions :class:`EquationLearner` takes by name.
+
+    A member is also the string of its value: ``EquationFunction.SIN`` and
+    ``"sin"`` are the same function, in any case. Each names an nnodely
+    layer: ``SIN`` is :class:`Sin`, ``LEAKY_RELU`` is :class:`LeakyReLU`.
+    ``ADD``, ``SUBTRACT``, ``MULTIPLY``, ``DIVIDE``, ``POWER``, ``MOD``,
+    ``MAXIMUM``, ``MINIMUM`` and ``ATAN2`` take two arguments, the others one.
+
+    See Also
+    --------
+    EquationLearner : A layer of named functions between two Linear layers.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import EquationFunction, EquationLearner
+    >>> EquationFunction.SIN == "sin"
+    True
+    >>> learner = EquationLearner([EquationFunction.SIN, EquationFunction.MULTIPLY])
+
+    .. versionadded:: 2.0
+    """
+
+    IDENTITY = "identity"
+    SIN = "sin"
+    COS = "cos"
+    TAN = "tan"
+    ASIN = "asin"
+    ACOS = "acos"
+    ATAN = "atan"
+    ATAN2 = "atan2"
+    SINH = "sinh"
+    COSH = "cosh"
+    ASINH = "asinh"
+    ACOSH = "acosh"
+    ATANH = "atanh"
+    EXP = "exp"
+    LOG = "log"
+    LOG10 = "log10"
+    LOG2 = "log2"
+    SQRT = "sqrt"
+    SQUARE = "square"
+    ABS = "abs"
+    SIGN = "sign"
+    FLOOR = "floor"
+    CEIL = "ceil"
+    ROUND = "round"
+    GAUSSIAN = "gaussian"
+    TRIANGULAR = "triangular"
+    RECTANGULAR = "rectangular"
+    RELU = "relu"
+    LEAKY_RELU = "leaky_relu"
+    ELU = "elu"
+    PRELU = "prelu"
+    SIGMOID = "sigmoid"
+    TANH = "tanh"
+    SWISH = "swish"
+    GELU = "gelu"
+    SOFTPLUS = "softplus"
+    ADD = "add"
+    SUBTRACT = "subtract"
+    MULTIPLY = "multiply"
+    DIVIDE = "divide"
+    POWER = "power"
+    MOD = "mod"
+    MAXIMUM = "maximum"
+    MINIMUM = "minimum"
+
+
+_NAMED_FUNCTIONS: dict[EquationFunction, type[Layer]] = {
+    EquationFunction.IDENTITY: Identity,
+    EquationFunction.SIN: Sin,
+    EquationFunction.COS: Cos,
+    EquationFunction.TAN: Tan,
+    EquationFunction.ASIN: Asin,
+    EquationFunction.ACOS: Acos,
+    EquationFunction.ATAN: Atan,
+    EquationFunction.ATAN2: Atan2,
+    EquationFunction.SINH: Sinh,
+    EquationFunction.COSH: Cosh,
+    EquationFunction.ASINH: Asinh,
+    EquationFunction.ACOSH: Acosh,
+    EquationFunction.ATANH: Atanh,
+    EquationFunction.EXP: Exp,
+    EquationFunction.LOG: Log,
+    EquationFunction.LOG10: Log10,
+    EquationFunction.LOG2: Log2,
+    EquationFunction.SQRT: Sqrt,
+    EquationFunction.SQUARE: Square,
+    EquationFunction.ABS: Abs,
+    EquationFunction.SIGN: Sign,
+    EquationFunction.FLOOR: Floor,
+    EquationFunction.CEIL: Ceil,
+    EquationFunction.ROUND: Round,
+    EquationFunction.GAUSSIAN: Gaussian,
+    EquationFunction.TRIANGULAR: Triangular,
+    EquationFunction.RECTANGULAR: Rectangular,
+    EquationFunction.RELU: ReLU,
+    EquationFunction.LEAKY_RELU: LeakyReLU,
+    EquationFunction.ELU: ELU,
+    EquationFunction.PRELU: PReLU,
+    EquationFunction.SIGMOID: Sigmoid,
+    EquationFunction.TANH: Tanh,
+    EquationFunction.SWISH: Swish,
+    EquationFunction.GELU: GELU,
+    EquationFunction.SOFTPLUS: Softplus,
+    EquationFunction.ADD: Add,
+    EquationFunction.SUBTRACT: Subtract,
+    EquationFunction.MULTIPLY: Multiply,
+    EquationFunction.DIVIDE: Divide,
+    EquationFunction.POWER: Power,
+    EquationFunction.MOD: Mod,
+    EquationFunction.MAXIMUM: Maximum,
+    EquationFunction.MINIMUM: Minimum,
 }
 _BINARY_LAYER_TYPES = (
     Add,
@@ -170,11 +237,12 @@ class EquationLearner:
     functions : list
         The functions of the basis, in order. Each item is one of:
 
-        - a name, in any case. Of one argument: ``identity``, ``sin``,
+        - a name, a member of :class:`EquationFunction` or its string, in
+          any case. Of one argument: ``identity``, ``sin``,
           ``cos``, ``tan``, ``asin``, ``acos``, ``atan``, ``sinh``, ``cosh``,
-          ``asinh``, ``acosh``, ``atanh``, ``exp``, ``expm1``, ``log``,
-          ``log1p``, ``log10``, ``log2``, ``sqrt``, ``square``, ``abs``,
-          ``sign``, ``floor``, ``ceil``, ``round``; the activations ``relu``,
+          ``asinh``, ``acosh``, ``atanh``, ``exp``, ``log``, ``log10``,
+          ``log2``, ``sqrt``, ``square``, ``abs``, ``sign``, ``floor``,
+          ``ceil``, ``round``; the activations ``relu``,
           ``leaky_relu``, ``elu``, ``prelu``, ``sigmoid``, ``tanh``,
           ``swish``, ``gelu``, ``softplus``; the memberships ``gaussian``,
           ``triangular``, ``rectangular``, 1 at 0, of width 1. Of two
@@ -384,7 +452,7 @@ class EquationLearner:
         if not isinstance(functions, list) or not functions:
             raise ValueError("EquationLearner requires at least one function.")
 
-        self.name = name or next_name("EquationLearner")
+        self.name = name or _next_name("EquationLearner")
         self._functions = list(functions)
         self._function_specs = [_resolve_function(function) for function in functions]
         self._n_arguments = sum(spec.arity for spec in self._function_specs)
@@ -458,12 +526,12 @@ class EquationLearner:
         the model is built; with none, it subtracts zero."""
         dropped = self._dropped.get(key)
         if dropped is None:
-            weights = projected._weight_nodes()
+            weights = projected.weights
             dropped = _DroppedTerms(
                 self._threshold,
                 features=projected._features,
-                kernel=weights[0],
-                bias=weights[1] if len(weights) > 1 else False,
+                kernel=weights["kernel"],
+                bias=weights.get("bias", False),
                 axis=projected._axis,
                 shared_kernel=projected._shared_kernel,
                 name=f"{self.name}_{key}_dropped",
@@ -474,7 +542,7 @@ class EquationLearner:
         return Subtract(name=f"{call_name}_{key}_kept")([projected, node])
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             functions=[spec.label for spec in self._function_specs],
@@ -571,7 +639,7 @@ class EquationLearner:
         )
         return self._model(streams)
 
-    def plot(self, precision: int = 4, ax=None) -> Any:
+    def plot(self, precision: int = 4, ax: Axes | None = None) -> Any:
         """Draw the learned equation with matplotlib, and return it as a sympy ``Eq``.
 
         It is the equation the model computes now: the current coefficients
@@ -683,7 +751,10 @@ class EquationLearner:
         """The equations :meth:`EquationLearner.plot` draws, as sympy ``Eq``."""
         import sympy
 
-        if self._linear_in is None or self._linear_in.kernel is None:
+        if (
+            self._linear_in is None
+            or getattr(self._linear_in.weights.get("kernel"), "param", None) is None
+        ):
             raise RuntimeError(
                 f"{self.name}: plot() reads the coefficients of a built model: "
                 "call the learner on its inputs and build the model first."
@@ -695,10 +766,10 @@ class EquationLearner:
             kernel, bias = (
                 np.zeros(shape)
                 if weight is None
-                else np.asarray(
-                    keras.ops.convert_to_numpy(weight), dtype=np.float64
-                ).reshape(shape)
-                for weight, shape in zip((linear.kernel, linear.bias), shapes)
+                else np.asarray(weight.value, dtype=np.float64).reshape(shape)
+                for weight, shape in zip(
+                    (linear.weights.get("kernel"), linear.weights.get("bias")), shapes
+                )
             )
             if self._threshold is not None:
                 kernel, bias = (
@@ -713,13 +784,13 @@ class EquationLearner:
                 for j in range(linear._features)
             ]
 
-        # One symbol per feature of each stream, by object - the same stream
-        # given twice is one variable - each of a name of its own: sympy takes
-        # two symbols of one name for one, and would add up their terms.
+        # One symbol per feature of each stream, by object, so the same stream
+        # given twice is one variable. Each symbol has a name of its own: sympy
+        # takes two symbols of one name for one, and would add up their terms.
         taken: set[str] = set()
 
         def symbol(name: str):
-            free = free_name(name, taken)
+            free = _free_name(name, taken)
             taken.add(free)
             return sympy.Symbol(free)
 
@@ -840,13 +911,14 @@ def _resolve_function(function) -> _FunctionSpec:
             raise TypeError("Function pairs must have the form (callable, arity).")
         function, explicit_arity = function
 
-    resolved = (
-        _NAMED_FUNCTIONS.get(function.lower())
-        if isinstance(function, str)
-        else function
-    )
+    resolved = function
+    if isinstance(function, str):
+        try:
+            resolved = _NAMED_FUNCTIONS[EquationFunction(function.lower())]
+        except ValueError:
+            resolved = None
     if resolved is None:
-        available = ", ".join(sorted(_NAMED_FUNCTIONS))
+        available = ", ".join(sorted(member.value for member in EquationFunction))
         raise ValueError(
             f"Unknown EquationLearner function. Available names: {available}."
         )
@@ -1034,9 +1106,7 @@ def _symbolic(spec: _FunctionSpec, index: int):
             Tanh: sympy.tanh,
             Sigmoid: _operator("sigmoid", r"\sigma"),
             Exp: sympy.exp,
-            Expm1: lambda a: sympy.exp(a) - 1,  # type: ignore
             Log: sympy.log,
-            Log1p: lambda a: sympy.log(1 + a),
             Log10: _operator("log10", r"\log_{10}"),
             Log2: _operator("log2", r"\log_{2}"),
             Sqrt: sympy.sqrt,

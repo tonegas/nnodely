@@ -2,12 +2,12 @@ import os
 import warnings
 
 from collections.abc import Mapping
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, cast
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
-    free_name,
-    toposort,
+    _free_name,
+    _toposort,
     flatten,
     _flatten_graph,
     _undeclared_inputs,
@@ -18,31 +18,31 @@ from nnodely.core.dag import (
     _source_input_tensors,
     NameNotFound,
     Table,
-    resolve,
+    _resolve,
 )
 from nnodely.core.minimizer import (
+    Minimizer,
     MinimizerModel,
+    Minimizers,
     _check_minimizers_train_weights,
+    _check_sides,
     _minimizer_stream,
     _resolve_minimizer_terms,
     _validate_gain,
 )
 from nnodely.core.results import (
-    Fields,
     TrainResult,
     ValidationResult,
-    loss_name,
-    minimizer_fields,
-    target_label,
+    _minimizer_fields,
 )
 from nnodely.utils.utils import (
     _resolve_early_stopping,
     _resolve_loss,
     _resolve_optimizer,
 )
-from nnodely.utils.printers import _resolve_printer, _table
+from nnodely.utils.printers import _LossTable, _table
 from nnodely.core.registry import ModelSerializer
-from nnodely.core.stream import Stream, Node, object_repr
+from nnodely.core.stream import Stream, Node, _object_repr
 from nnodely.layers.parameter import Constant, Parameter, Parameters, _Value
 from nnodely.core.dataloader import DataLoader
 
@@ -75,10 +75,13 @@ class Modely:
     ``model({"x": stream})``, ``model([stream_1, stream_2])``, ``model(stream)``
         Uses the model as a block of a larger graph: returns its outputs as
         streams.
+    ``model.loop()``, ``model.loop(seq=n)``
+        Returns the model of the rollout of a model declared one step at a
+        time, over the steps of the data or ``n`` steps: see :meth:`loop`.
 
     A model is declared once, on streams. Objectives, called minimizers in the
     method names (:meth:`minimize`, :attr:`minimizers`,
-    :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`), are registered next. :meth:`build` then
+    :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`), are registered next. :meth:`build` then
     creates the Keras model. A :class:`DataLoader` made for the built model
     feeds :meth:`train` and :meth:`validate`.
 
@@ -94,14 +97,17 @@ class Modely:
         write, and names the folder of a block saved inside a larger model.
     inputs : list of Input
         Every Input the model reads. The list form of the call follows its
-        order. It lists the Inputs the outputs read, those given to a block,
-        and the ``init`` of an :class:`Integrate`, a :class:`Derivative` or a
-        :class:`Buffer`. Two kinds may be left out:
+        order. It lists the Inputs the outputs read, the fed-back ones too,
+        those given to a block, and the ``init`` of an :class:`Integrate`, a
+        :class:`Derivative` or a :class:`Buffer`. Two kinds are left out:
 
-        - a fed-back Input, see :meth:`Input.feedback`;
+        - a hidden state, ``x.feedback(stream, hidden=True)``: the model's own
+          memory, which cannot be declared, see :meth:`Input.feedback`;
         - an Input only an objective reads, such as a measured target.
 
-        The list is copied: changing it later leaves the model as it was.
+        An Input the outputs do not read, in one step or through the streams
+        the model feeds back, is refused. The list is copied: changing it
+        later leaves the model as it was.
     outputs : list of Output
         The streams the model exposes, each named by its :class:`Output`.
 
@@ -120,7 +126,9 @@ class Modely:
     ------
     ValueError
         If the outputs read an Input that is not among ``inputs`` ("which are
-        not among its inputs: declare them there"). If the model is called on
+        not among its inputs: declare them there"), or if ``inputs`` holds a
+        hidden state ("declares the hidden states") or an Input the outputs
+        do not read ("which its outputs do not read"). If the model is called on
         arrays before :meth:`build` ("Model is not built"), or without an
         input it reads ("which are missing from the data"). If a list holds
         one value too many or too few ("takes one value for each"). If a
@@ -134,7 +142,7 @@ class Modely:
 
     See Also
     --------
-    ModelyLoop : A model declared one step at a time, rolled out.
+    Modely.loop : The rollout of a model declared one step at a time.
     DataLoader : The data of a model, laid out for training.
     Input : A signal read from data.
     Output : A stream the model exposes, with its name.
@@ -294,25 +302,74 @@ class Modely:
     _order: list[Node]
 
     def __init__(self, name: str, inputs: list[Input], outputs: list[Output]) -> None:
+        read: set[int] = set()
+        self._declare(name, inputs, outputs, read)
+        hidden = [node.name for node in self._inputs if node._hidden]
+        if hidden:
+            raise ValueError(
+                f"Model {name!r} declares the hidden states {hidden} among its "
+                "inputs. A hidden state (fed back with hidden=True, or kept by "
+                "an Integrate, a Derivative or a Buffer) is the model's own "
+                "memory, which starts from its init, and none of its inputs: "
+                "leave it out of inputs, or feed it back without hidden=True "
+                "to read it from data."
+            )
+        unread = [node.name for node in self._inputs if id(node) not in read]
+        if unread:
+            raise ValueError(
+                f"Model {name!r} declares the Inputs {unread} among its inputs, "
+                "which its outputs do not read, neither in one step nor through "
+                "the streams it feeds back: leave them out of inputs. An Input "
+                "only an objective reads, such as a target, is not declared."
+            )
+
+    @classmethod
+    def _of(cls, name: str, inputs: list[Input], outputs: list[Output]) -> "Modely":
+        """A model of a graph nnodely makes, which may declare hidden states:
+        the body of a Loop, which reads its states as inputs at every step,
+        or a model loaded back, checked when it was declared."""
+        model = cls.__new__(cls)
+        model._declare(name, inputs, outputs)
+        return model
+
+    def _declare(
+        self,
+        name: str,
+        inputs: list[Input],
+        outputs: list[Output],
+        read: set[int] | None = None,
+    ) -> None:
+        """``read``, if given, is filled with the id of every one of
+        ``inputs`` the outputs read."""
         self.name = name
-        # Lists of its own: one the caller goes on changing - reused for
-        # another model - leaves this one as it was declared.
+        # Lists of its own: one the caller goes on changing, reused for
+        # another model, leaves this one as it was declared.
         self._inputs = list(inputs)
         self._outputs = list(outputs)
-        self._order = toposort(self._outputs)
+        self._order = _toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
-        # One entry per Input: two of one name are listed twice.
-        undeclared = sorted(
-            node.name for node in _undeclared_inputs(self._inputs, self._outputs)
-        )
+        undeclared = _undeclared_inputs(self._inputs, self._outputs, read)
         if undeclared:
+            # One entry per Input: two of one name are listed twice.
+            fed_back = sorted(
+                node.name for node in undeclared if node._update is not None
+            )
             raise ValueError(
-                f"Model {name!r} reads the Inputs {undeclared}, which are not "
+                f"Model {name!r} reads the Inputs "
+                f"{sorted(node.name for node in undeclared)}, which are not "
                 "among its inputs: declare them there. A model declares every "
                 "Input it reads, the init of an Integrate, a Derivative or a "
-                "Buffer too; only a fed-back Input, or one only a minimizer "
+                "Buffer too; only a hidden state, or an Input only a minimizer "
                 "reads, such as a target, may be left out."
+                + (
+                    f" The fed-back ones, {fed_back}, are states: each is "
+                    "declared, an input the data or the caller gives, or "
+                    "hidden, the model's own memory, x.feedback(stream, "
+                    "init=..., hidden=True)."
+                    if fed_back
+                    else ""
+                )
             )
         self._keras_model = None  # Keras model build from this DAG
         self._train_inputs = []  # List of Input nodes that are required for training (derived from minimizers)
@@ -330,6 +387,10 @@ class Modely:
         self._originals: dict[int, Input] = {}
         self._minimizers = []  # List of dicts with keys: 'source', 'target', 'loss', 'name'
         self._minimizer_outputs: dict[Node, str] = {}  # minimizer side -> graph output
+        # Set by loop(): the Input of the rollout it made of each Input of
+        # its step, by the Input it stands for (_Step.key). The graph draws the
+        # two as one node.
+        self._rolled_inputs: dict[int, Input] = {}
 
     def __str__(self) -> str:
         """The model as a table: its name, then the names of every Input it
@@ -346,7 +407,7 @@ class Modely:
 
     def __repr__(self) -> str:
         """One line, the fields of its row in :attr:`models`."""
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             inputs=self.inputs.keys(),
@@ -364,8 +425,8 @@ class Modely:
         at once, as ``model.inputs[name]`` resolves it: a name several Inputs
         carry raises, and so does an Input the model does not read. Keyed by
         the Inputs themselves, two of one name are told apart. A key that
-        names no input the model reads - a target, or another column - is
-        ignored.
+        names no input the model reads, such as a target or another column,
+        is ignored.
         """
         if isinstance(inputs, Node) or hasattr(inputs, "shape"):
             # A stream or an array alone: the value of the one input.
@@ -425,12 +486,12 @@ class Modely:
         return self._call_tensor(given)
 
     def _input_of(self, key, known: list | None = None) -> Input:
-        """The Input a key the user gives stands for - the Input itself, or
-        its name, resolved as ``model.inputs[name]`` resolves it: a name
+        """The Input a key the user gives stands for. The key is the Input
+        itself, or its name, resolved as ``model.inputs[name]`` resolves it: a name
         several Inputs carry raises, listing them, and a name none carries, or
         an Input the model does not read, raises :class:`NameNotFound`.
         ``known`` is ``self.inputs._candidates()``, when the caller holds it."""
-        return resolve(
+        return _resolve(
             key,
             self.inputs._candidates() if known is None else known,
             kind="Input",
@@ -509,7 +570,7 @@ class Modely:
                 "missing from the data it was called with."
             )
         # An optional input left out reads zeros, one step of a dynamic
-        # sequence: a ModelyLoop starts from the first step of it alone.
+        # sequence: a rollout of loop() starts from the first step of it alone.
         batch = np.shape(inputs[given[0][0]])[0]
         arrays = {key: inputs[node] for node, key in given}
         for node, key in left_out:
@@ -546,7 +607,7 @@ class Modely:
             raise ValueError(
                 f"Model {self.name!r} reads several Inputs named {twins}: the "
                 "data is keyed by input name, so give one of them a name of "
-                "its own, model.inputs[i].name = 'new_name' - then build "
+                "its own, model.inputs[i].name = 'new_name', then build "
                 "again to train with it."
             )
 
@@ -585,11 +646,313 @@ class Modely:
             raise ValueError(
                 f"Model {self.name!r} reads its input {node.name!r} as "
                 f"{node.shape}, so used as a block it takes a stream of that "
-                "shape for it - the same dim, sequence and window; "
+                "shape for it, with the same dim, sequence and window; "
                 f"{stream.name!r} is {stream.shape}. A block keeps "
                 "the shapes it was declared with: give it a stream of that "
                 "shape, or declare the model on the shape it is used with."
             )
+
+    def loop(self, seq: int | None = None) -> "Modely":
+        r"""A new :class:`Modely` that rolls this model out over a sequence
+        of steps: every Input it feeds back is fed back at the next step.
+
+        Syntax
+        ------
+        ``model.loop()``
+            Rolls the model out over as many steps as the data has.
+        ``model.loop(seq=n)``
+            Rolls it out over ``n`` steps.
+
+        This model is one step. A state is an Input fed back with
+        :meth:`Input.feedback`: ``x_next = x.feedback(stream)``. Inside the
+        step, ``x`` holds the value at the end of the previous step, and
+        ``stream`` the value at the end of this one. Every fed-back Input the
+        step reads, also inside the models it calls (one per call), is fed
+        back together, in one rollout, so states may read each other. A state
+        is declared among the inputs of this model, or hidden,
+        ``x.feedback(stream, hidden=True)``: the model's own memory.
+
+        - A declared state starts from the first step of its own data, and
+          from zero where the data leaves it out.
+        - A hidden state starts from its ``init``, zero without one; so does
+          the state of an :class:`Integrate`, a :class:`Derivative` or a
+          :class:`Buffer`, from the ``init`` of the layer.
+
+        A model the step calls as a block keeps the feedback of the fed-back
+        Inputs it declares: the stream the call gives one is its initial
+        value, read at the first step. Every Input has a window: ``tw=1``
+        reads one sample per step.
+
+        The model returned is a plain :class:`Modely` of the rollout, of the
+        name of this one: its Inputs and outputs have the names of those of
+        the step, and the steps as a new outermost sequence axis. Every
+        output is a trajectory: its element ``k`` is computed at step ``k``.
+        Everything else works as in any Modely: objectives, :meth:`build`,
+        :meth:`train`, calls and export.
+
+        The one-step model it rolls out is ``rollout.models[0]``, and shares
+        its weights with this model. It is this model itself when this model
+        declares every state, and has an output for every stream a state is
+        fed back with; it is then built, if it is not. Otherwise it is a model
+        of the same name made of its graph, with its states among its inputs
+        and an output added for each stream they are fed back with, as
+        :class:`Loop` rolls out. The objectives of this model are not those of
+        the rollout.
+
+        Parameters
+        ----------
+        seq : int or None, default None
+            The number of steps, at least 1. ``None`` takes as many steps as
+            the data has.
+
+        Returns
+        -------
+        Modely
+            The model of the rollout. With ``seq=n``, an Input of the step
+            declared with ``seq=s`` is read from data of ``seq=(n, *s)``. On
+            arrays, an output of the step of ``Shape(S, T, D)`` gives
+            ``(batch, steps, *S, T, *D)``: with ``seq=3``, a step output of
+            ``Shape(S=(), T=1, D=(1,))`` gives ``(batch, 3, 1, 1)``.
+
+        Raises
+        ------
+        ValueError
+            If the model reads no fed-back Input ("reads no fed-back Input").
+            If ``seq`` is not a positive int or None ("seq is a positive
+            int"). If an input has no window ("declare it with tw=1"). If the
+            stream a hidden state is fed back with reads an Input the model
+            does not declare ("without declaring them"). If a declared
+            fed-back Input also gets an initial value from the call of a
+            block ("is among the inputs").
+
+        See Also
+        --------
+        Loop : A rollout of a model inside a larger graph.
+        Input.feedback : Feed a stream back into an Input at the next step.
+        IntegrateStep : One step of an integral.
+        DataLoader : The data of a model, cut into sequences with ``seq_length``.
+
+        Notes
+        -----
+        With the state :math:`x_k` at the start of step :math:`k`, the input
+        :math:`u_k` and the step :math:`f`:
+
+        .. math:: x_{k+1} = f(x_k, u_k), \qquad y_k = x_{k+1}
+
+        where the output :math:`y` collects the stream ``x`` is fed back with,
+        and :math:`x_0` is the start of the state.
+
+        :meth:`minimize` compares the outputs of the rollout,
+        ``rollout.outputs["x"]`` or their names, which are trajectories, with
+        targets declared with the horizon, ``Input("x_meas", seq=-1, tw=1)``.
+        A stream of the step is of another graph, and refused.
+
+        Basic Examples
+        --------------
+        A running total, the hidden state ``total``, fed back with
+        ``total + rate``:
+
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, IntegrateStep, Modely, Output
+        >>> rate = Input("rate", tw=1)
+        >>> total = Input("total", tw=1)
+        >>> total_next = total.feedback(total + rate, hidden=True)
+        >>> step = Modely("counter", inputs=[rate], outputs=[Output("total", total_next)])
+        >>> counter = step.loop().build()
+        >>> result = counter({"rate": np.ones((1, 3, 1, 1))})  # (batch, steps, T, D)
+        >>> keras.ops.convert_to_numpy(result["total"]).ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        Scope
+        -----
+        Without ``seq``, the number of steps follows the data:
+
+        >>> keras.ops.convert_to_numpy(counter({"rate": np.ones((1, 5, 1, 1))})["total"]).ravel()
+        array([1., 2., 3., 4., 5.], dtype=float32)
+
+        The rollout is a :class:`Modely` of the same name. Its one-step model,
+        its first model, reads the hidden state as an input:
+
+        >>> type(counter) is Modely, counter.name
+        (True, 'counter')
+        >>> sorted(node.name for node in counter.models[0].inputs)
+        ['rate', 'total']
+
+        Options
+        -------
+        ``seq`` fixes the number of steps:
+
+        >>> fixed = step.loop(seq=3)
+        >>> fixed.outputs[0].shape
+        Shape(S=(3,), T=1, D=(1,))
+
+        A declared state starts from the first step of its data, and from
+        zero when the data leaves it out:
+
+        >>> level = Input("level", tw=1)
+        >>> level_next = level.feedback(level + rate)
+        >>> listed = Modely("listed", inputs=[rate, level], outputs=[Output("level", level_next)])
+        >>> rollout = listed.loop().build()
+        >>> data = {"rate": np.ones((1, 3, 1, 1)), "level": np.full((1, 3, 1, 1), 10.0)}
+        >>> keras.ops.convert_to_numpy(rollout(data)["level"]).ravel()
+        array([11., 12., 13.], dtype=float32)
+        >>> keras.ops.convert_to_numpy(rollout({"rate": np.ones((1, 3, 1, 1))})["level"]).ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        It declares its state, and has the stream it is fed back with as an
+        output, so it is the one-step model itself:
+
+        >>> rollout.models[0] is listed
+        True
+
+        A hidden state starts from its ``init``, whatever the data holds:
+
+        >>> memory = Input("memory", tw=1)
+        >>> memory_next = memory.feedback(memory + rate, init=5.0, hidden=True)
+        >>> kept = Modely("kept", inputs=[rate], outputs=[Output("memory", memory_next)]).loop()
+        >>> data = {"rate": np.ones((1, 3, 1, 1)), "memory": np.full((1, 3, 1, 1), 10.0)}
+        >>> keras.ops.convert_to_numpy(kept.build()(data)["memory"]).ravel()
+        array([6., 7., 8.], dtype=float32)
+
+        Applications
+        ------------
+        A mass of 2 kg pushed by a force, its velocity and position integrated
+        with the Euler method, ``dt = 1``:
+
+        >>> force = Input("force", tw=1)
+        >>> v, x = Input("v", tw=1), Input("x", tw=1)
+        >>> v_next = v.feedback(IntegrateStep(dt=1.0)(v, force / 2.0), hidden=True)
+        >>> x_next = x.feedback(IntegrateStep(dt=1.0)(x, v_next), hidden=True)
+        >>> mass = Modely("mass", inputs=[force], outputs=[Output("x", x_next)]).loop().build()
+        >>> keras.ops.convert_to_numpy(mass({"force": np.ones((1, 3, 1, 1))})["x"]).ravel()
+        array([0.5, 1.5, 3. ], dtype=float32)
+
+        Properties & Relations
+        ----------------------
+        The running total is the cumulative sum of the rates:
+
+        >>> rates = np.array([1.0, -2.0, 4.0]).reshape(1, 3, 1, 1)
+        >>> totals = keras.ops.convert_to_numpy(counter({"rate": rates})["total"]).ravel()
+        >>> bool(np.all(totals == np.cumsum(rates)))
+        True
+
+        Possible Issues
+        ---------------
+        A model without a fed-back Input has nothing to roll out. Feed one
+        back, or use the model as it is:
+
+        >>> Modely("plain", inputs=[rate], outputs=[Output("o", 2.0 * rate)]).loop()
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'plain' reads no fed-back Input, so it has nothing to roll out...
+
+        A state is declared among the inputs, or hidden. One that is neither
+        is refused when the model is declared:
+
+        >>> s = Input("s", tw=1)
+        >>> s_next = s.feedback(s + rate)
+        >>> Modely("open", inputs=[rate], outputs=[Output("s", s_next)])
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'open' reads the Inputs ['s'], which are not among its inputs: declare them there...
+
+        A stream of the step has no value in the rollout. The rollout is
+        minimized on its outputs, the trajectories:
+
+        >>> counter.minimize("bad", total_next, Input("measured", seq=-1, tw=1))
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'bad': its source ... is a stream of the graph of 'counter'...
+        >>> counter = counter.minimize("fit", "total", Input("measured", seq=-1, tw=1))
+
+        .. versionadded:: 2.0
+        """
+        from nnodely.layers.loop import Loop, _Step
+
+        if seq is not None and (
+            isinstance(seq, bool) or not isinstance(seq, int) or seq < 1
+        ):
+            raise ValueError(
+                f"Model {self.name!r}: the seq of loop() is a positive int, or "
+                f"None for the length of the data, got {seq!r}."
+            )
+
+        # This model is the step; the one Loop feeds back every Input it
+        # feeds back.
+        step = _Step(self, {}, who=f"Model {self.name!r}", among="its inputs")
+        if not step.pairs:
+            raise ValueError(
+                f"Model {self.name!r} reads no fed-back Input, so it has nothing "
+                "to roll out: feed one back with x.feedback(stream), or use the "
+                "model as it is."
+            )
+
+        # The Input of the rollout of each Input of the step, by the Input it
+        # stands for (_Step.key): the same name, the horizon its new outermost
+        # sequence axis.
+        rolled_inputs: dict[int, Input] = {}
+
+        def rolled_input(node: Input) -> Input:
+            key = step.key(node)
+            rolled = rolled_inputs.get(key)
+            if rolled is None:
+                if node.tw is None:
+                    raise ValueError(
+                        f"Model {self.name!r} reads its Input {node.name!r} one "
+                        "step at a time when rolled out, so its data carries the "
+                        "horizon as a sequence axis, which needs a window: "
+                        "declare it with tw=1."
+                    )
+                horizon = -1 if seq is None else seq
+                rolled = Input(
+                    node.name,
+                    dim=node.dim,
+                    seq=(horizon, *(-1 if size is None else size for size in node.seq)),
+                    tw=(node.past, node.future),
+                )
+                rolled_inputs[key] = rolled
+            return rolled
+
+        # A fed-back Input among the inputs starts from its data, which may
+        # leave it out: then from zero.
+        listed = {id(node) for node in self._inputs}
+        from_data = [state for state in step.states if step.key(state) in listed]
+        for state in from_data:
+            if state in step.starts:
+                raise ValueError(
+                    f"Model {self.name!r}: {state.name!r} has an initial value "
+                    "(the stream a call gives it) and is among the inputs, "
+                    "which would start it from its data: leave it out of "
+                    "inputs, or give it no initial value."
+                )
+        declaration = Loop._of(
+            step,
+            init={state: rolled_input(state) for state in from_data},
+            name=f"{self.name}_loop",
+            seq=seq,
+        )
+        read = [*declaration._static_inputs, *declaration._seed_inputs]
+        if not read and not from_data:
+            raise ValueError(
+                f"Model {self.name!r} reads no Input, in its steps or as the "
+                "initial value of a fed-back Input, so no data sets the batch "
+                "and number of steps of its rollout."
+            )
+        loop = declaration({node: rolled_input(node) for node in read})
+
+        # One trajectory per output of the body, the declared outputs first.
+        model = Modely(
+            self.name,
+            inputs=[rolled_input(node) for node in self._inputs],
+            outputs=[
+                Output(output.name, trajectory)
+                for output, trajectory in zip(self._outputs, loop)
+            ],
+        )
+        model._optional_inputs = {rolled_input(state) for state in from_data}
+        model._rolled_inputs = rolled_inputs
+        return model
 
     @property
     def built(self):
@@ -646,14 +1009,10 @@ class Modely:
         ValueError
             If the graph reads no Input ("reads no Input"). If two different
             Inputs of the graph have one name ("reads two different Inputs
-            named"): the data is keyed by input name.
-
-        Warns
-        -----
-        UserWarning
-            If the model reads a fed-back Input it does not declare ("which
-            only a Loop or a ModelyLoop feeds back"). A Modely reads it from
-            data, one step at a time.
+            named"): the data is keyed by input name. If a hidden state the
+            user named, ``x.feedback(stream, hidden=True)``, has the name of
+            another Input of the graph ("and one is a hidden state"): the
+            state of a layer takes a free name instead.
 
         See Also
         --------
@@ -715,7 +1074,8 @@ class Modely:
         # only once its Keras models are made.
         # The training model returns them by a key of their own: the name of
         # a declared output for one, else its name when no other output has
-        # it - two calls of one block return streams of one name.
+        # it, since two calls of one block return streams of one name. An Input
+        # is keyed by its own name, not by the Identity's.
         extra_outputs, extra_keys = [], []
         minimizer_outputs: dict[Node, str] = {}
         keys = {node.name for node in self._outputs}
@@ -727,7 +1087,7 @@ class Modely:
                 if exposed in self._outputs:
                     minimizer_outputs[node] = exposed.name
                     continue
-                key = free_name(exposed.name, keys)
+                key = _free_name(node.name, keys)
                 keys.add(key)
                 extra_outputs.append(exposed)
                 extra_keys.append(key)
@@ -738,7 +1098,7 @@ class Modely:
         flat_outputs, flatten_memo = _flatten_graph(
             self._inputs, train_outputs, one_step=True
         )
-        flat_order = toposort(flat_outputs)
+        flat_order = _toposort(flat_outputs)
         # A minimizer side, too, is computed by a layer called on streams.
         _refuse_uncalled(flat_order)
         train_inputs = [node for node in flat_order if isinstance(node, Input)]
@@ -746,7 +1106,7 @@ class Modely:
             # Keras would only say that its outputs are not KerasTensors.
             raise ValueError(
                 f"Model {self.name!r} reads no Input. A model is evaluated on "
-                "data, and its Inputs are what the data feeds - the batch too: "
+                "data, and its Inputs are what the data feeds, the batch too: "
                 "a graph of Parameters, Constants and numbers alone, such as a "
                 "Loop seeded and driven by numbers only, has nothing to run on. "
                 "Read at least one Input."
@@ -770,27 +1130,6 @@ class Modely:
                 f"{twins[0]!r}. The data is fed by input name, so every "
                 "Input of a model needs a name of its own."
             )
-        # A fed-back Input the model declares among its inputs is fed from
-        # data on purpose; any other is a feedback a loop was meant to apply.
-        declared = {id(node) for node in self._inputs}
-        open_feedback = sorted(
-            {
-                node.name
-                for node in train_inputs
-                if node.update is not None
-                and id(originals.get(id(node), node)) not in declared
-            }
-        )
-        if open_feedback:
-            warnings.warn(
-                f"Model {self.name!r} reads the fed-back Inputs {open_feedback}, "
-                "which only a Loop or a ModelyLoop feeds back: built as a Modely, "
-                "they are read from data, one step at a time. Roll the model out "
-                "with Loop or ModelyLoop, or declare them among the inputs.",
-                UserWarning,
-                stacklevel=2,
-            )
-
         keras_inputs, keras_outputs = self._resolve_graph(
             flat_order, train_inputs, list(zip(output_keys, flat_outputs))
         )
@@ -801,8 +1140,8 @@ class Modely:
         )
 
         # Inference sees the model as it was declared: its outputs, and only
-        # the inputs those read. What the minimizers add - their sides, and the
-        # inputs only they read, such as targets - is there for the loss and
+        # the inputs those read. What the minimizers add (their sides, and the
+        # inputs only they read, such as targets) is there for the loss and
         # stays in the training model. The inputs are read off the Keras graph
         # rather than the DAG, because a Parameter or Constant is wired to an
         # arbitrary input for its batch.
@@ -823,7 +1162,7 @@ class Modely:
 
         # Graph flattening builds shallow copies. Keep the public symbolic nodes
         # connected to the concrete Keras layers created from those copies, and
-        # to the input shapes those were built for - the handle and what it
+        # to the input shapes those were built for. The handle and what it
         # fits travel together, so composing this model later can tell whether
         # its layers can be reused where they land.
         for source_node, flat_node in flatten_memo.items():
@@ -843,8 +1182,8 @@ class Modely:
         self._keras_inference_model = inference_model
 
         if not keep_weights:
-            # In place, so every model computing with them - a block built on
-            # its own, a body - starts from them too. Each Keras layer once,
+            # In place, so every model computing with them (a block built on
+            # its own, a body) starts from them too. Each Keras layer once,
             # however many nodes apply it.
             layers: dict[int, Layer] = {}
             for node in _nodes_and_models(self)[0]:
@@ -860,7 +1199,7 @@ class Modely:
         # application overwrite the previous one. The concrete Keras layer is
         # keyed by the layer object the node applies, its source: applications
         # of one layer share its weights, the way repeated calls do in Keras,
-        # and layers created apart never do - even under one name, as a model
+        # and layers created apart never do, even under one name, as a model
         # and its reloaded copy have.
         tensor_map: dict[Node, Any] = {
             node: node._input for node in order if isinstance(node, Input)
@@ -869,8 +1208,8 @@ class Modely:
         keras_names: dict[str, Any] = {
             node._input.name: Input for node in order if isinstance(node, Input)
         }
-        # A Parameter that layers only read as one of their weights - never as
-        # their input, nor as an output - is read whole: it keeps a batch axis
+        # A Parameter that layers only read as one of their weights (never as
+        # their input, nor as an output) is read whole: it keeps a batch axis
         # of one rather than a copy for every sample, which the backward pass
         # would sum again.
         readers: dict[Node, list[tuple[Node, int]]] = {}
@@ -903,11 +1242,11 @@ class Modely:
                 if len(node._preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     if isinstance(node, _Value):
-                        tensor_map[node] = node.call([anchor], whole=read_whole(node))
+                        tensor_map[node] = node._call([anchor], whole=read_whole(node))
                     else:
-                        tensor_map[node] = node.call([anchor])
+                        tensor_map[node] = node._call([anchor])
                 else:
-                    tensor_map[node] = node.call(
+                    tensor_map[node] = node._call(
                         [tensor_map[pred] for pred in node._preds]
                     )
                 layers_by_source[id(node._source)] = (
@@ -966,10 +1305,19 @@ class Modely:
 
         An objective is called a minimizer in the method names:
         ``minimize``, :attr:`minimizers` and
-        :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`. Register
+        :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`. Register
         the objectives before :meth:`build`, which adds their streams to the
         training model. The name of an objective is its key: registering a
         name again replaces that objective, in its place, with a warning.
+
+        Both sides are computed from the graph of the model, from values, and
+        from Inputs only the objectives read, such as targets. They have one
+        shape, but for a value, which broadcasts: nothing is reshaped. A
+        stream of the graph of another model (a block called, the body of a
+        :class:`Loop`, the step :meth:`loop` rolls out) is refused: the model
+        has no value for it. A trajectory is minimized as the output of the
+        model that collects it, ``msd.outputs["x"]`` or its name, against a
+        target declared with its horizon, ``Input("x_meas", seq=-1, tw=1)``.
 
         Parameters
         ----------
@@ -982,8 +1330,8 @@ class Modely:
         target : Output, Stream, str, float or None, default None
             What the prediction is compared with:
 
-            - an Input, or a stream computed from Inputs, read from the data:
-              its shape is the shape of ``source``;
+            - an Input, or a stream computed from Inputs, read from the data,
+              of the shape of ``source``;
             - the name of a stream of the model;
             - a number, compared with every value of ``source``;
             - ``None``, the same as ``0.0``: the objective drives ``source``
@@ -1012,6 +1360,11 @@ class Modely:
             If ``name`` is not a non-empty string ("A minimizer name is a
             non-empty string"). If ``loss`` is unknown ("Unknown or invalid Keras loss"). If ``gain``
             is negative or not finite ("must be finite and not negative").
+            If a side reads the graph of another model ("is a stream of the
+            graph of"), a fed-back Input the model does not read ("is fed
+            back, and model"), or another Input of the name of one the model
+            reads ("is not the Input"). If the target, read from the data,
+            has another shape than the source ("must have the same shape").
         KeyError
             If a name given for ``source`` or ``target`` is the name of no
             stream of the model ("is not the name of a stream"). The error is
@@ -1096,6 +1449,13 @@ class Modely:
         >>> str(caught[0].message)
         "Minimizer 'level' already exists in model 'offset': it is replaced by the new one."
 
+        A target of another shape than the source is refused, not broadcast:
+
+        >>> model.minimize("window", y, Input("y_window", tw=3))
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'window' compares 'y' of shape Shape(S=(), T=1, D=(1,)) with 'y_window' of shape Shape(S=(), T=3, D=(1,))...
+
         .. versionadded:: 2.0
         """
         self._check_minimizer_name(
@@ -1110,6 +1470,7 @@ class Modely:
         ):
             target = Constant(name=None, value=[float(target)])
         target = _minimizer_stream(self, target, "target", name)
+        _check_sides(self, source, target, name)
         resolved_loss = _resolve_loss(loss)
         gain = _validate_gain(gain, name)
         minimizer = {
@@ -1145,7 +1506,7 @@ class Modely:
             )
 
     def _set_minimizer(self, minimizer: dict, key: str, value):
-        """Set the name, loss or gain - ``key`` - of ``minimizer``, one of
+        """Set the name, loss or gain, ``key``, of ``minimizer``, one of
         the model's, checked as :meth:`minimize` checks it."""
         if not any(m is minimizer for m in self._minimizers):
             raise ValueError(
@@ -1254,8 +1615,8 @@ class Modely:
         It holds the models it calls as blocks, the bodies of its Loops, and
         theirs, at every depth. They come in the order the graph reaches
         them, each once however many times it is called. A
-        :class:`LocalModel`, an :class:`EquationLearner` and a
-        :class:`ModelyLoop` call models of their own, listed too.
+        :class:`LocalModel`, an :class:`EquationLearner` and the rollout of
+        :meth:`loop` call models of their own, listed too.
 
         The list holds the Modely objects themselves, not copies. They share
         their weights with this model: training, freezing or building one
@@ -1319,9 +1680,11 @@ class Modely:
 
         - the Inputs it declares;
         - the Inputs only an objective reads, such as targets;
-        - the fed-back Inputs;
-        - the Inputs fed back inside the step of a Loop it rolls out, as a
-          :class:`ModelyLoop` does.
+        - its hidden states (``x.feedback(stream, hidden=True)``, the states
+          of an Integrate, a Derivative or a Buffer), which it reads the init
+          of;
+        - the states fed back inside the step of a Loop it rolls out, as the
+          rollout of :meth:`loop` does.
 
         The list holds the Input objects themselves. Pick one by its name,
         ``inputs["x"]``, or by its index, the ``idx`` column of the table.
@@ -1331,14 +1694,19 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each Input,
         and how it is fed:
 
-        - declared: whether it is among the inputs of the model;
-        - fed back with: the stream a loop feeds back into it at the next
-          step. A :class:`Modely` reads such an Input from data instead;
-        - data: what the data holds of it. ``required``; ``optional``, read
-          as zeros where the data leaves it out; ``target``, to train and
-          validate only; or ``-``, fed back only;
-        - starts from: for an Input a loop feeds back, what its first step
-          reads.
+        - flags: ``required``, an input of the model, which the data or the
+          caller gives; ``optional``, an input read as zeros where the data
+          leaves it out (only the rollout of :meth:`loop` has one);
+          ``target``, read only by an objective, to train and validate; or
+          ``hidden``, the model's own memory, which the data does not hold:
+          a hidden state, or a state of a Loop it rolls out.
+        - update: ``<- v``, what it reads at every step; ``x₀ = v``, what it
+          starts from. ``'name'`` is the data of an Input, its first step
+          in a rollout. A state shows both: ``<- w``, the stream it is fed
+          back with, and its initial value (``0`` without one). The one-step
+          model shows them too, though only a rollout feeds a state back: it
+          reads a declared one from data at every step, and a hidden one its
+          init.
 
         See Also
         --------
@@ -1358,6 +1726,23 @@ class Modely:
         >>> model.inputs["x"] is x
         True
 
+        A running total, a hidden state, against a target:
+
+        >>> x, total = Input("x", tw=1), Input("total", tw=1)
+        >>> running = x + total
+        >>> running.name = "running"
+        >>> _ = total.feedback(running, hidden=True)
+        >>> model = Modely("sum", inputs=[x], outputs=[Output("y", running)])
+        >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
+        >>> print(model.inputs)
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ idx ┃ input  ┃ seq ┃ tw ┃ dim  ┃ flags    ┃ update                 ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+        │ 0   │ x      │ ()  │ 1  │ (1,) │ required │ <- 'x'                 │
+        │ 1   │ y_meas │ ()  │ 1  │ (1,) │ target   │ <- 'y_meas'            │
+        │ 2   │ total  │ ()  │ 1  │ (1,) │ hidden   │ <- running, total₀ = 0 │
+        └─────┴────────┴─────┴────┴──────┴──────────┴────────────────────────┘
+
         .. versionadded:: 2.0
         """
         return Inputs(self._input_rows())
@@ -1365,9 +1750,10 @@ class Modely:
     def _input_rows(self) -> list[dict]:
         """A row of :attr:`inputs` per Input the graph reads, then one per
         state of its Loops that does not start from the data of one."""
+        from nnodely.layers.input import _HiddenInit
         from nnodely.layers.loop import Loop
 
-        # A row per Input object: two Inputs of one name - renamed alike -
+        # A row per Input object: two Inputs of one name (renamed alike)
         # are two rows, and the model refuses them when built.
         declared = {id(node) for node in self._inputs}
         sides = [
@@ -1377,15 +1763,24 @@ class Modely:
         ]
         # The rows give the Inputs of the graph, not the copies reading it
         # makes: an Input a called model reads is the one to pass on.
-        forward_originals: dict[int, Input] = {}
-        forward = {
-            id(forward_originals.get(id(node), node))
-            for node in _read_nodes(self._outputs, self._inputs, forward_originals)
-            if isinstance(node, Input)
-        }
         originals: dict[int, Input] = {}
         copies: dict[int, Node] = {}
-        read = _read_nodes([*self._outputs, *sides], self._inputs, originals, copies)
+        hidden: list[Input] = []
+        read = _read_nodes(
+            [*self._outputs, *sides], self._inputs, originals, copies, hidden
+        )
+        # The Inputs read at every step: not those only the initial value of
+        # a state reads, of a Loop or a hidden one.
+        every_step = {
+            id(originals.get(id(root), root)) for root in [*self._outputs, *sides]
+        }
+        for node in read:
+            preds = node._preds
+            if isinstance(node, Loop):
+                preds = preds[len(node._feedback_inputs) :]
+            elif isinstance(node, _HiddenInit):
+                preds = []
+            every_step.update(id(originals.get(id(pred), pred)) for pred in preds)
         rows = []
         by_input: dict[int, dict] = {}
         for node in read:
@@ -1394,63 +1789,77 @@ class Modely:
             original = originals.get(id(node), node)
             if id(original) in by_input:
                 continue
-            if id(original) not in forward:
-                data = "target"
+            # The outputs read every declared Input, and no other but a
+            # hidden state, which is read as its init: the rest are targets.
+            if id(original) not in declared:
+                flags = "target"
             else:
-                data = "optional" if original in self._optional_inputs else "required"
+                flags = "optional" if original in self._optional_inputs else "required"
+            data_cell = f"{original.name!r}"
             by_input[id(original)] = {
                 "input": original,
                 "seq": tuple(node.seq),
-                "declared": id(original) in declared,
-                "fed back with": None if node.update is None else node.update.name,
+                "flags": flags,
+                "update": f"<- {data_cell}"
+                if node._update is None and id(original) in every_step
+                else f"{original.name}₀ = {data_cell}"
+                if node._update is None
+                else f"<- {node._update.name}, {original.name}₀ = {data_cell}",
                 # The stream of the graph it is fed back with.
-                "update": None
-                if node.update is None
-                else copies.get(id(node.update), node.update),
-                "data": data,
-                "starts from": None,
+                "update stream": None
+                if node._update is None
+                else copies.get(id(node._update), node._update),
             }
             rows.append(by_input[id(original)])
 
-        # The states, inside the step: one that starts from an optional Input
-        # - the Input of a ModelyLoop it starts from, by object, renamed or
-        # not - is that Input, read from data.
-        seen: set[int] = set()
+        # The states: the hidden ones the one-step model reads the init of, at
+        # every step, then those inside the steps of its Loops, with the
+        # stream of the graph each is fed back with.
+        states: list[tuple[Input, Stream, Any, Any]] = [
+            (state, cast(Stream, state._update), state._init, state._update)
+            for state in hidden
+        ]
         for loop in (node for node in read if isinstance(node, Loop)):
-            for state, update, start, rolled in loop._state_starts():
-                if id(state) in seen:
-                    continue
-                seen.add(id(state))
-                first = ", first step" if rolled else ""
-                # Read here as a copy, too.
-                if isinstance(start, Input):
-                    start = originals.get(id(start), start)
-                row = (
-                    by_input.get(id(start))
-                    if isinstance(start, Input) and start in self._optional_inputs
-                    else None
+            states += [
+                (state, update, start, loop._step.copied_from(update))
+                for state, update, start, _ in loop._state_starts()
+            ]
+        seen: set[int] = set()
+        for state, update, start, graph_update in states:
+            if id(state) in seen:
+                continue
+            seen.add(id(state))
+            # Read here as a copy, too.
+            if isinstance(start, Input):
+                start = originals.get(id(start), start)
+            # One that starts from an optional Input (the Input of a rollout
+            # of loop() it starts from, by object, renamed or not) is that
+            # Input, read from data.
+            row = (
+                by_input.get(id(start))
+                if isinstance(start, Input) and start in self._optional_inputs
+                else None
+            )
+            if row is not None:
+                starts = f"{start.name!r} or 0"
+            else:
+                row = {
+                    "input": state,
+                    "seq": tuple(state.seq),
+                    "flags": "hidden",
+                }
+                rows.append(row)
+                starts = (
+                    "0"
+                    if start is None
+                    else f"{start.name!r}"
+                    if isinstance(start, Input)
+                    else start.name
+                    if isinstance(start, Stream)
+                    else str(start)
                 )
-                if row is not None:
-                    starts = f"its data{first}"
-                    if start in self._optional_inputs:
-                        starts += ", else 0"
-                else:
-                    row = {
-                        "input": state,
-                        "seq": tuple(state.seq),
-                        "declared": False,
-                        "data": None,
-                    }
-                    rows.append(row)
-                    if start is None:
-                        starts = "0"
-                    elif isinstance(start, Stream):
-                        starts = f"{start.name}{first}"
-                    else:
-                        starts = str(start)
-                row["fed back with"] = update.name
-                row["update"] = loop._step.copied_from(update)
-                row["starts from"] = starts
+            row["update"] = f"<- {update.name}, {row['input'].name}₀ = {starts}"
+            row["update stream"] = graph_update
         return rows
 
     @property
@@ -1465,10 +1874,10 @@ class Modely:
         The table gives the name, ``seq``, ``tw`` and ``dim`` of each output,
         and:
 
-        - stream: the stream the output names. In a :class:`ModelyLoop`, the
-          stream of the step, collected over the steps;
-        - feeds back: the Inputs a loop feeds that stream back into at the
-          next step;
+        - update: ``-> s``, the Inputs a loop feeds the stream of the output
+          back into at the next step, as :attr:`inputs` shows them with
+          ``<- w``. In the rollout of :meth:`loop`, that stream is the one of
+          the step the trajectory collects;
         - minimized by: the objectives that read it, as ``name (source)`` or
           ``name (target)``.
 
@@ -1487,11 +1896,11 @@ class Modely:
         >>> y = Output("y", doubled)
         >>> model = Modely("double", inputs=[x], outputs=[y]).minimize("fit", y, 4.0)
         >>> print(model.outputs)
-        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
-        ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ stream  ┃ feeds back ┃ minimized by ┃
-        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
-        │ 0   │ y      │ ()  │ 1  │ (1,) │ doubled │ -          │ fit (source) │
-        └─────┴────────┴─────┴────┴──────┴─────────┴────────────┴──────────────┘
+        ┏━━━━━┳━━━━━━━━┳━━━━━┳━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━┓
+        ┃ idx ┃ output ┃ seq ┃ tw ┃ dim  ┃ update ┃ minimized by ┃
+        ┡━━━━━╇━━━━━━━━╇━━━━━╇━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━┩
+        │ 0   │ y      │ ()  │ 1  │ (1,) │ -      │ fit (source) │
+        └─────┴────────┴─────┴────┴──────┴────────┴──────────────┘
         >>> model.outputs["y"] is y
         True
 
@@ -1505,8 +1914,10 @@ class Modely:
         # of :attr:`inputs` read copies of it, and give it.
         fed_back: dict[int, list[str]] = {}
         for row in self._input_rows():
-            if row.get("update") is not None:
-                fed_back.setdefault(id(row["update"]), []).append(row["input"].name)
+            if row["update stream"] is not None:
+                fed_back.setdefault(id(row["update stream"]), []).append(
+                    row["input"].name
+                )
         minimized: dict[int, list[str]] = {}
         for minimizer in self._minimizers:
             for side in ("source", "target"):
@@ -1520,9 +1931,7 @@ class Modely:
                 {
                     "output": output,
                     "stream": stream.name,
-                    "feeds back": fed_back.get(
-                        id(stream), fed_back.get(id(output), [])
-                    ),
+                    "update": fed_back.get(id(stream), fed_back.get(id(output), [])),
                     "minimized by": [
                         *minimized.get(id(output), []),
                         *minimized.get(id(output._preds[0]), []),
@@ -1532,8 +1941,22 @@ class Modely:
         return rows
 
     def _output_stream(self, output: Output) -> Node:
-        """The stream ``output`` names."""
-        return output._preds[0]
+        """The stream ``output`` names: for the trajectory of a Loop, the
+        stream of its body it collects, as the graph the Loop was declared
+        over holds it (the step of a rollout of loop(), which the body copies)."""
+        from nnodely.layers.loop import Loop
+
+        stream = output._preds[0]
+        # One output of a Loop of several is an Output of the loop.
+        index = stream._loop_index if isinstance(stream, Output) else None
+        loop = stream._preds[0] if index is not None else stream
+        if not isinstance(loop, Loop):
+            return stream
+        if index is not None:
+            collected = loop._model._outputs[index]
+        else:
+            collected = loop._returns[0]  # the one output it returns
+        return loop._step.copied_from(collected._preds[0])
 
     @property
     def minimizers(self) -> "Minimizers":
@@ -1544,8 +1967,8 @@ class Modely:
         by its name, ``minimizers["fit"]``, or by its index, the ``idx``
         column of the table. A name none carries raises ``KeyError``.
 
-        Each entry reads as a dict and as an object, ``m["gain"]`` or
-        ``m.gain``. Its keys are:
+        Each entry is a :class:`~nnodely.core.minimizer.Minimizer`, read by its
+        attributes:
 
         - ``name``: the name of the objective;
         - ``source`` and ``target``: the streams it compares. A number given
@@ -1558,8 +1981,9 @@ class Modely:
         objective in the model, checked as :meth:`minimize` checks it. The
         next :meth:`train` uses it, without a new build. Setting anything
         else raises ``TypeError``: register the objective again with
-        :meth:`minimize` to change what it compares. :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`
-        removes the objective from the model.
+        :meth:`minimize` to change what it compares. :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`
+        removes the objective from the model, ``minimizers.clear()`` every
+        objective. The table is otherwise a tuple, which does not change.
 
         The table gives the name, source, target, loss and gain of each. The
         objectives of the models it calls are not listed and not trained:
@@ -1586,17 +2010,17 @@ class Modely:
 
         Scope
         -----
-        Every key of an entry, read as a key or as an attribute:
+        Every attribute of an entry:
 
         >>> fit = model.minimizers["fit"]
-        >>> fit["source"] is y, fit.target.name, fit.gain, fit.model is model
+        >>> fit.source is y, fit.target.name, fit.gain, fit.model is model
         (True, 'y_meas', 1.0, True)
 
         Options
         -------
         Setting the gain, the loss or the name changes the objective:
 
-        >>> model.minimizers[0]["gain"] = 0.5
+        >>> model.minimizers[0].gain = 0.5
         >>> model.minimizers[0].loss = "mae"
         >>> fit.name = "track"
         >>> print(model.minimizers)
@@ -1811,7 +2235,7 @@ class Modely:
         if given:
             raise TypeError(
                 f"Model {self.name!r} picks Parameters and models by name, a "
-                "string or a list of strings - one of several of a name is "
+                "string or a list of strings. One of several of a name is "
                 "frozen by itself, model.parameters[i].freeze(); got "
                 f"{type(given[0]).__name__}."
             )
@@ -1835,7 +2259,7 @@ class Modely:
         ]
         picked: dict[int, Parameter] = {}
         for key in keys:
-            item = resolve(
+            item = _resolve(
                 key,
                 candidates,
                 kind="Parameter or model",
@@ -1863,10 +2287,7 @@ class Modely:
 
     def validate(
         self,
-        val_data,
-        out_dir: str | os.PathLike | None = None,
-        show: bool = False,
-        history: TrainResult | dict[str, Any] | None = None,
+        val_data: DataLoader,
         verbose: bool = False,
     ) -> ValidationResult:
         """Validate every minimizer of the built model on a dataset.
@@ -1881,14 +2302,6 @@ class Modely:
         val_data : DataLoader
             The data, made for this build of the model. It holds every Input
             training reads, the targets included.
-        out_dir : str, os.PathLike or None, default None
-            The folder :meth:`ValidationResult.plot` writes the figures to,
-            as PNG files. ``None`` writes none.
-        show : bool, default False
-            ``True`` opens the figures in an interactive Matplotlib window.
-        history : TrainResult, dict or None, default None
-            The losses of a training, drawn as curves in a figure of their
-            own.
         verbose : bool, default False
             ``True`` prints the table of the result.
 
@@ -1899,8 +2312,9 @@ class Modely:
             ``loss_<minimizer>`` the loss of each, the keys of :meth:`train`;
             ``signals``, a :class:`~nnodely.core.validation.Signal` per
             minimizer, the signals it compared and their metrics;
-            ``minimizers``, a snapshot of those validated; ``figures``, the
-            files written.
+            ``minimizers``, a snapshot of those validated. Its
+            :meth:`~nnodely.core.results.ValidationResult.plot` draws the
+            figures.
 
         Raises
         ------
@@ -1916,6 +2330,7 @@ class Modely:
         Modely.train : Train the model, with ``val_data`` too.
         Modely.minimize : Register an objective.
         DataLoader : The data of a model.
+        ~nnodely.core.results.ValidationResult.plot : Draw the figures.
 
         Notes
         -----
@@ -1955,11 +2370,14 @@ class Modely:
         │     │ total     │        │        │                    │      │ 1.0000e+00 │
         └─────┴───────────┴────────┴────────┴────────────────────┴──────┴────────────┘
 
-        ``out_dir`` writes the figures, and ``history`` adds the loss curves:
+        ``plot`` writes the figures to ``out_dir``, and ``history`` adds the
+        loss curves:
 
-        >>> trained = model.train(data, epochs=1, batch_size=4, printer=None)
-        >>> result = model.validate(data, out_dir="figures", history=trained)
-        >>> result.figures
+        >>> trained = model.train(data, epochs=1, batch_size=4, verbose=False)
+        >>> result = model.validate(data)
+        >>> _ = result.plot(out_dir="figures", history=trained)
+        >>> from pathlib import Path
+        >>> [Path(path).as_posix() for path in result.figures]
         ['figures/offset_0_fit.png', 'figures/offset_history.png']
 
         Possible Issues
@@ -1976,14 +2394,7 @@ class Modely:
         """
         if self._keras_model is not None:
             self._check_names_built()
-        return validation.validate(
-            self,
-            val_data,
-            out_dir=out_dir,
-            show=show,
-            history=history,
-            verbose=verbose,
-        )
+        return validation.validate(self, val_data, verbose=verbose)
 
     def _training_arrays(self, data: DataLoader) -> tuple[dict, np.ndarray | None]:
         """The model's inputs and, when simulations were padded, their mask.
@@ -2016,9 +2427,8 @@ class Modely:
         lr: float = 1e-3,
         shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
-        early_stopping_kwargs: dict[str, Any] | None = None,
-        printer: str | keras.callbacks.Callback | None = "legacy",
-        jit_compile: str = "auto",
+        verbose: bool = True,
+        jit_compile: str | bool = "auto",
     ):
         r"""Train the built model on its objectives, and return the losses of
         every epoch.
@@ -2055,10 +2465,11 @@ class Modely:
             Ends training before ``epochs`` once it stops improving:
 
             - the name of a loss training logs, such as ``"val_loss_fit"``,
-              made into a
-              ``keras.callbacks.EarlyStopping`` with ``early_stopping_kwargs``
-              as its other arguments. It looks for a minimum;
-            - a dict of the arguments of ``keras.callbacks.EarlyStopping``;
+              made into a ``keras.callbacks.EarlyStopping`` that monitors it
+              with the Keras defaults. It looks for a minimum;
+            - a dict of the arguments of ``keras.callbacks.EarlyStopping``,
+              such as ``{"monitor": "val_loss", "patience": 10,
+              "restore_best_weights": True}``;
             - a callback: a configured ``keras.callbacks.EarlyStopping``, or
               one of your own that sets ``self.model.stop_training = True``;
             - ``None``, training runs every epoch.
@@ -2070,24 +2481,20 @@ class Modely:
             More arguments of a named optimizer, such as
             ``{"weight_decay": 1e-4, "global_clipnorm": 1.0}``. It cannot
             hold ``"learning_rate"``: that is ``lr``.
-        early_stopping_kwargs : dict or None, default None
-            More arguments of the ``EarlyStopping`` that a name given as
-            ``early_stopping`` makes, such as
-            ``{"patience": 10, "restore_best_weights": True}``.
-        printer : str, keras.callbacks.Callback or None, default "legacy"
-            How progress is shown:
-
-            - ``"legacy"``: a table of the losses of every objective, a row
-              per epoch, drawn as the tables of a model are;
-            - ``"tiny"``: one compact block, redrawn at every epoch;
-            - ``"nnodely"``: an animated console with a chart of the total
-              loss;
-            - ``None``: nothing;
-            - a Keras callback, used as given, such as a
-              :class:`LegacyPrinter`.
+        verbose : bool, default True
+            ``True`` prints the progress: a table of the losses of every
+            objective, train and val, a row per sampled epoch (at most 20),
+            then the training time. ``False`` prints nothing.
         jit_compile : str or bool, default "auto"
-            Whether Keras compiles the training step: ``"auto"``, ``True`` or
-            ``False``, as ``keras.Model.compile`` takes it.
+            Whether the training step is compiled, as
+            ``keras.Model.compile`` takes it:
+
+            - ``"auto"``: Keras decides. JAX compiles with XLA; TensorFlow
+              compiles with XLA only on a GPU; PyTorch runs eagerly;
+            - ``True``: compiled with XLA on TensorFlow and JAX, with
+              ``torch.compile`` on PyTorch;
+            - ``False``: not compiled, the step runs op by op. Slower, but
+              an error points at the operation that raised it.
 
         Returns
         -------
@@ -2116,10 +2523,11 @@ class Modely:
             If the optimizer name is unknown ("The supported optimizers
             are"), or ``optimizer_kwargs`` holds ``"learning_rate"``. If early
             stopping monitors a quantity training does not log ("which
-            training does not log"). If ``printer`` is unknown.
+            training does not log"). If
+            ``jit_compile`` is not ``"auto"``, ``True`` or ``False``.
         TypeError
-            If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` is not
-            a bool, or ``early_stopping`` has another type.
+            If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` or
+            ``verbose`` is not a bool, or ``early_stopping`` has another type.
 
         See Also
         --------
@@ -2152,8 +2560,8 @@ class Modely:
         >>> model = model.minimize("fit", y, y_meas).build()
         >>> samples = np.arange(8.0)
         >>> data = DataLoader(model, source={"x": samples, "y_meas": samples})
-        >>> trained = model.train(data, epochs=2, batch_size=4, printer=None)
-        >>> trained.losses.keys(), trained.epochs
+        >>> trained = model.train(data, epochs=2, batch_size=4, verbose=False)
+        >>> list(trained.losses), trained.epochs
         (['loss', 'loss_fit'], 2)
         >>> trained
         TrainResult(model='offset', epochs=2, samples=8, loss=...,
@@ -2165,8 +2573,8 @@ class Modely:
         -------
         ``val_data`` adds the validation losses:
 
-        >>> trained = model.train(data, val_data=data, epochs=1, batch_size=4, printer=None)
-        >>> trained.losses.keys()
+        >>> trained = model.train(data, val_data=data, epochs=1, batch_size=4, verbose=False)
+        >>> list(trained.losses)
         ['loss', 'loss_fit', 'val_loss', 'val_loss_fit']
 
         ``optimizer`` by name, with ``lr`` and ``optimizer_kwargs``. An
@@ -2174,17 +2582,17 @@ class Modely:
         passed the same way:
 
         >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="adamw", lr=1e-2,
-        ...                       optimizer_kwargs={"weight_decay": 1e-4}, printer=None)
+        ...                       optimizer_kwargs={"weight_decay": 1e-4}, verbose=False)
 
-        ``early_stopping`` by the name of a logged loss:
+        ``early_stopping`` by the arguments of a Keras ``EarlyStopping``:
 
-        >>> trained = model.train(data, epochs=50, batch_size=4, printer=None,
-        ...                       early_stopping="loss_fit",
-        ...                       early_stopping_kwargs={"patience": 1, "min_delta": 1e9})
+        >>> trained = model.train(data, epochs=50, batch_size=4, verbose=False,
+        ...                       early_stopping={"monitor": "loss_fit", "patience": 1,
+        ...                                       "min_delta": 1e9})
         >>> trained.epochs
         2
 
-        ``shuffle=False`` keeps the order of the samples, and ``printer=None``
+        ``shuffle=False`` keeps the order of the samples, and ``verbose=False``
         prints nothing.
 
         Properties & Relations
@@ -2196,7 +2604,7 @@ class Modely:
         >>> model = model.minimize("again", y, y_meas, loss="mae", gain=0.5)
         >>> model = model.build(keep_weights=False)
         >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.0,
-        ...                       printer=None)
+        ...                       verbose=False)
         >>> print(trained)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┓
         ┃ idx ┃ minimizer ┃ loss                ┃ gain ┃ loss value ┃
@@ -2213,7 +2621,7 @@ class Modely:
         ---------------
         A validation loss is logged only with ``val_data``:
 
-        >>> model.train(data, epochs=5, batch_size=4, early_stopping="val_loss", printer=None)
+        >>> model.train(data, epochs=5, batch_size=4, early_stopping="val_loss", verbose=False)
         Traceback (most recent call last):
             ...
         ValueError: Early stopping monitors 'val_loss', which training does not log: ...Pass val_data to monitor a validation loss.
@@ -2237,6 +2645,14 @@ class Modely:
             raise ValueError(f"lr is a non-negative number, got {lr!r}.")
         if not isinstance(shuffle, bool):
             raise TypeError(f"shuffle is True or False, got {shuffle!r}.")
+        if not isinstance(verbose, bool):
+            raise TypeError(f"verbose is True or False, got {verbose!r}.")
+        if jit_compile not in ("auto", True, False):
+            raise ValueError(
+                f"jit_compile is 'auto', True or False, got {jit_compile!r}: "
+                "'auto' lets Keras decide, True compiles the training step, "
+                "False runs it op by op."
+            )
         if not hasattr(train_data, "as_dict"):
             raise TypeError(
                 f"train_data is a DataLoader, got {type(train_data).__name__}: "
@@ -2259,7 +2675,7 @@ class Modely:
         ]
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]
-        stopper = _resolve_early_stopping(early_stopping, early_stopping_kwargs, logged)
+        stopper = _resolve_early_stopping(early_stopping, logged)
         self._keras_model.set_minimizers(_resolve_minimizer_terms(self))
         _check_minimizers_train_weights(self, self._keras_model)
 
@@ -2273,7 +2689,11 @@ class Modely:
             val_x, val_mask = self._training_arrays(val_data)
             validation_data = val_x if val_mask is None else (val_x, val_mask)
 
-        self._keras_model.compile(optimizer=resolved_optimizer, jit_compile=jit_compile)
+        # Keras types jit_compile as a str, but takes True and False as well.
+        self._keras_model.compile(
+            optimizer=resolved_optimizer,
+            jit_compile=jit_compile,  # pyright: ignore[reportArgumentType]
+        )
         history = self._keras_model.fit(
             x=x_data,
             y=mask,
@@ -2282,7 +2702,11 @@ class Modely:
             shuffle=shuffle,
             verbose=0,  # type: ignore
             callbacks=[
-                _resolve_printer(printer, epochs, self._minimizers, self.name),
+                *(
+                    [_LossTable(epochs, [m["name"] for m in self._minimizers])]
+                    if verbose
+                    else []
+                ),
                 *([stopper] if stopper is not None else []),
             ],
             validation_data=validation_data,
@@ -2291,8 +2715,8 @@ class Modely:
         return TrainResult(
             model=self.name,
             samples=n_samples,
-            minimizers=minimizer_fields(self._minimizers),
-            losses=Fields((key, np.asarray(history.history[key])) for key in logged),
+            minimizers=_minimizer_fields(self._minimizers),
+            losses={key: np.asarray(history.history[key]) for key in logged},
         )
 
     # -------------------------------------------------------------------------
@@ -2305,7 +2729,7 @@ class Modely:
         The new model, named ``<name>_flat``, computes the same outputs from
         the same inputs. Every model this one calls as a block is replaced by
         its streams, at every depth. Its Loop bodies are not inlined: a
-        :class:`Loop` and a :class:`ModelyLoop` keep their body.
+        :class:`Loop` and the rollout of :meth:`loop` keep their body.
 
         Returns
         -------
@@ -2375,7 +2799,6 @@ class Modely:
         out_dir: str | os.PathLike,
         filename: str | None = None,
         *,
-        open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
     ) -> None:
         """Write the graph of the model as interactive HTML pages, to open in a
@@ -2395,8 +2818,6 @@ class Modely:
         filename : str or None, default None
             The name of the main page. ``None`` names it after the model. The
             suffix ``.html`` is added when missing.
-        open_subgraph_in_new_tab : bool, default False
-            ``True`` opens the page of a block in a new browser tab.
         physics : bool, default True
             The pages open on a left-to-right layout, and switch to a force
             layout with a button. ``True`` lets the force layout place the
@@ -2444,41 +2865,14 @@ class Modely:
             model=self,
             out_dir=out_dir,
             filename=filename,
-            open_subgraph_in_new_tab=open_subgraph_in_new_tab,
             physics=physics,
         )
-
-    def summary(self):
-        """Print the Keras summary of the built model: its layers, their output
-        shapes and their numbers of weights.
-
-        The summary is the one of the Keras model training runs, named
-        ``<name>_train``. A model not built prints nothing.
-
-        See Also
-        --------
-        Modely.parameters : The Parameters, as a table.
-        Modely.build : Create the Keras model.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, Modely, Output
-        >>> x = Input("x", tw=2)
-        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
-        >>> model.summary()
-        Model: "double_train"
-        ...
-
-        .. versionadded:: 2.0
-        """
-        if self._keras_model is not None:
-            self._keras_model.summary()
 
     # -------------------------------------------------------------------------
     # Save and load
     # -------------------------------------------------------------------------
 
-    def save(self, path, weights: bool | Literal["all"] = True):
+    def save(self, path: str | os.PathLike, weights: bool | Literal["all"] = True):
         """Save the model, its graph and its weights, to a folder.
 
         :meth:`load` makes the model again from the folder. The objectives are
@@ -2557,8 +2951,8 @@ class Modely:
             raise ValueError(f"weights is True, False or 'all', got {weights!r}.")
         # Loaded, a model with weights of its own is built: its Inputs need
         # names of their own, and its weights a Keras model to write them
-        # from - built to write them, not to run: what that would warn about
-        # is said once it is built to run.
+        # from. It is built to write them, not to run: what that would warn
+        # about is said once it is built to run.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             for model in _nodes_and_models(self)[1]:
@@ -2570,7 +2964,7 @@ class Modely:
         ModelSerializer.serialize(self, path, weights=weights)
 
     @classmethod
-    def load(cls, path, weights: bool = True):
+    def load(cls, path: str | os.PathLike, weights: bool = True):
         """Load a model saved with :meth:`save`, and return it built.
 
         The models it calls are loaded from their folders, each once however
@@ -2591,9 +2985,9 @@ class Modely:
         Returns
         -------
         Modely
-            The model, built. A saved :class:`ModelyLoop` loads as a
+            The model, built. A saved rollout of :meth:`loop` loads as a
             :class:`Modely` that rolls out the same step: it computes the
-            same outputs, and has no ``body`` attribute.
+            same outputs.
 
         Raises
         ------
@@ -2715,7 +3109,7 @@ class Modely:
         export.export_keras(self, path, filename)
 
     @staticmethod
-    def import_keras(filename: str, safe_mode: bool = True):
+    def import_keras(filename: str):
         """Read a ``.keras`` file written by :meth:`export_keras`, and return
         it as a ``keras.Model``.
 
@@ -2727,10 +3121,6 @@ class Modely:
         ----------
         filename : str
             The path of the ``.keras`` file.
-        safe_mode : bool, default True
-            Keras' safe mode, which refuses to load code stored in the file,
-            such as a Python lambda. Pass ``False`` only for a file you
-            trust.
 
         Returns
         -------
@@ -2758,15 +3148,15 @@ class Modely:
 
         .. versionadded:: 2.0
         """
-        return export.import_keras(filename, safe_mode=safe_mode)
+        return export.import_keras(filename)
 
     def export_onnx(
         self,
         path: str | os.PathLike,
         filename: str | None = None,
         *,
-        input_signature=None,
-        batch_size: int | None = None,
+        batch_size: int = 1,
+        seq: int | None = None,
         opset_version: int | None = None,
         verbose: bool = False,
     ) -> None:
@@ -2775,8 +3165,14 @@ class Modely:
 
         The file holds the model as declared: its outputs, and only the
         inputs they read, under their names. The objectives are left out.
-        The export needs the ``onnx`` extra, ``pip install "nnodely[onnx]"``,
-        and the TensorFlow or PyTorch backend.
+        Every backend exports: its extra, such as ``pip install
+        "nnodely[torch]"``, brings the converter Keras exports with.
+
+        Every axis of the file is fixed: the batch is ``batch_size`` samples,
+        one by default, and every sequence has its declared length. A
+        sequence of dynamic length, ``seq=-1``, as every Input of a rollout
+        of :meth:`loop` without ``seq`` has, is exported ``seq`` long.
+        The file runs on arrays of those shapes only.
 
         Parameters
         ----------
@@ -2785,15 +3181,16 @@ class Modely:
         filename : str or None, default None
             The name of the file. ``None`` names it after the model. The
             suffix ``.onnx`` is added when missing.
-        input_signature : list or None, default None
-            The shapes the exported graph takes, as Keras'
-            ``Model.export`` takes them, to fix axes left dynamic. ``None``
-            keeps the shapes of the model, the batch axis dynamic.
-        batch_size : int or None, default None
-            Fixes the batch axis to that many samples. ``None`` leaves it
-            dynamic. ``input_signature`` overrides it.
+        batch_size : int, default 1
+            The number of samples the file computes at once, a positive int.
+        seq : int or None, default None
+            The length of every sequence of dynamic length, a positive int.
+            Needed when the model reads one, unused otherwise.
         opset_version : int or None, default None
-            The ONNX opset. ``None`` takes the exporter's default.
+            The version of the ONNX operator set the file declares. A runtime
+            loads only the opsets it knows: give a lower one for an older
+            runtime, such as an embedded one. ``None`` takes the default of
+            the exporter of the backend.
         verbose : bool, default False
             ``True`` prints the messages of the exporter.
 
@@ -2801,31 +3198,84 @@ class Modely:
         ------
         ValueError
             If the model is not built ("Call build() before export_onnx()").
+            If ``batch_size`` or ``seq`` is not a positive int ("is a
+            positive int"). If the model reads a sequence of dynamic length
+            and ``seq`` is None ("give its length").
+        ImportError
+            If the converter of the backend is missing, nnodely installed
+            without its backend extra ("comes with the backend").
         NotImplementedError
-            On the JAX backend ("not available on the jax backend"). On the
-            PyTorch backend, for a model with a :class:`Gradient` with respect
-            to an Input.
+            On the PyTorch backend, for a model with a :class:`Gradient` with
+            respect to an Input.
 
         See Also
         --------
-        Modely.validate_onnx : Run the exported file.
+        Modely.run_onnx : Run the exported file.
         Modely.export_keras : Write the model as a Keras file.
         Modely.save : Save the model to keep working on it with nnodely.
 
         Notes
         -----
+        A model deployed in another system mostly runs one sample at a time,
+        in a controller or an estimator: hence a batch of one. A batch of
+        ``n`` runs ``n`` samples at every call, with ``n`` known when the
+        model is deployed: the candidates of a sampling-based predictive
+        controller, the particles of a filter, several agents served by one
+        model.
+
+        The file computes what the model computes, up to float32 rounding.
+
         A :class:`Gradient` with respect to an Input records the backward
-        pass in the exported graph. Its shape arithmetic converts only with a
-        fixed batch axis: such a model is exported with a batch of 1, unless
-        ``batch_size`` or ``input_signature`` says otherwise.
+        pass in the exported graph: it exports from JAX, from TensorFlow
+        when tf2onnx converts the gradient of every layer it differentiates
+        (that of :class:`Sin` but not that of :class:`Tanh`), and not from
+        PyTorch.
 
         Basic Examples
         --------------
-        A built model named ``double``, on the TensorFlow or the PyTorch
-        backend::
+        A model that doubles its input, exported, then run by ONNX Runtime:
 
-            model.export_onnx("exports")                 # exports/double.onnx
-            model.export_onnx("exports", "fixed", batch_size=4)
+        >>> import tempfile
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> double = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
+        >>> folder = tempfile.mkdtemp()
+        >>> double.export_onnx(folder)  # folder/double.onnx, one sample
+        >>> Modely.run_onnx(f"{folder}/double.onnx", {"x": np.ones((1, 1, 1))})
+        [array([[[2.]]], dtype=float32)]
+
+        Options
+        -------
+        ``batch_size`` fixes the number of samples of every call:
+
+        >>> double.export_onnx(folder, "four", batch_size=4)
+        >>> Modely.run_onnx(f"{folder}/four.onnx", {"x": np.ones((4, 1, 1))})[0].shape
+        (4, 1, 1)
+
+        ``seq`` fixes the number of steps of a rollout that follows
+        the data:
+
+        >>> total = Input("total", tw=1)
+        >>> step = Modely("counter", inputs=[x], outputs=[Output("s", total.feedback(total + x, hidden=True))])
+        >>> counter = step.loop().build()
+        >>> counter.export_onnx(folder, seq=3)
+        >>> result = Modely.run_onnx(f"{folder}/counter.onnx", {"x": np.ones((1, 3, 1, 1))})
+        >>> result[0].ravel()
+        array([1., 2., 3.], dtype=float32)
+
+        Possible Issues
+        ---------------
+        A sequence of dynamic length has no length to export without
+        ``seq``:
+
+        >>> counter.export_onnx(folder)
+        Traceback (most recent call last):
+            ...
+        ValueError: Model 'counter' reads 'x' as a sequence of dynamic length, and an ONNX file has fixed shapes...
+
+        The file refuses arrays of another shape than it was exported with,
+        another batch or another number of steps: export it again with those.
 
         .. versionadded:: 2.0
         """
@@ -2833,19 +3283,18 @@ class Modely:
             self,
             path,
             filename,
-            input_signature=input_signature,
             batch_size=batch_size,
+            seq=seq,
             opset_version=opset_version,
             verbose=verbose,
         )
 
     @staticmethod
-    def validate_onnx(
+    def run_onnx(
         filename: str | os.PathLike,
         inputs: dict,
         *,
         return_dict: bool = False,
-        providers: list[str] | None = None,
     ):
         """Run an ``.onnx`` file written by :meth:`export_onnx` with ONNX
         Runtime, and return its outputs.
@@ -2864,9 +3313,6 @@ class Modely:
         return_dict : bool, default False
             ``False`` returns the outputs as a list of arrays, in the order
             of the file. ``True`` returns ``{output name: array}``.
-        providers : list of str or None, default None
-            The ONNX Runtime execution providers, such as
-            ``["CPUExecutionProvider"]``. ``None`` takes the default ones.
 
         Returns
         -------
@@ -2875,8 +3321,6 @@ class Modely:
 
         Raises
         ------
-        ImportError
-            If ``onnxruntime`` is not installed.
         FileNotFoundError
             If the file does not exist ("ONNX model not found").
         ValueError
@@ -2893,16 +3337,14 @@ class Modely:
         the TensorFlow or the PyTorch backend::
 
             sample = {"x": np.array([[[1.0], [2.0]]])}
-            Modely.validate_onnx("exports/double.onnx", sample)
+            Modely.run_onnx("exports/double.onnx", sample)
             # [array([[[2.], [4.]]], dtype=float32)]
-            Modely.validate_onnx("exports/double.onnx", sample, return_dict=True)
+            Modely.run_onnx("exports/double.onnx", sample, return_dict=True)
             # {'y': array([[[2.], [4.]]], dtype=float32)}
 
         .. versionadded:: 2.0
         """
-        return export.validate_onnx(
-            filename, inputs, return_dict=return_dict, providers=providers
-        )
+        return export.run_onnx(filename, inputs, return_dict=return_dict)
 
 
 class ModelCall(Node):
@@ -2927,17 +3369,20 @@ class IntermediateOutput(Output):
 
 class Models(Table):
     """The models a model computes with, as :attr:`Modely.models` lists them:
-    a list of the Modely objects, printed as a table of their inputs, their
+    a tuple of the Modely objects, printed as a table of their inputs, their
     outputs, the number of Parameters each computes with and whether it is
     built."""
 
     _kind, _attr = "model", "models"
 
-    def __init__(self, models, title: str = "", where: list[str] | None = None):
-        super().__init__(models)
-        self._title = title
+    _places: list[str]
+
+    def __new__(cls, models, title: str = "", where: list[str] | None = None):
+        table = super().__new__(cls, models)
+        table._title = title
         # Where each one is, for the listing of a name several carry.
-        self._places = where or ["" for _ in models]
+        table._places = where or ["" for _ in models]
+        return table
 
     def _where(self, index, item) -> str:
         return self._places[index]
@@ -2957,221 +3402,46 @@ class Models(Table):
         return _table(header, [("", rows)], indexed=True)
 
 
-class Minimizer(Mapping):
-    """One objective of a model, as :attr:`~nnodely.Modely.minimizers` lists
-    it.
-
-    You do not create one yourself: :meth:`~nnodely.Modely.minimize`
-    registers the objective, and ``model.minimizers["fit"]`` or
-    ``model.minimizers[0]`` picks its row.
-
-    Attributes
-    ----------
-    name : str
-        The name of the objective, the key of its loss, ``loss_<name>``.
-    source : Stream
-        The prediction it compares.
-    target : Stream
-        The reference it compares the prediction with. A number given as the
-        target is a :class:`~nnodely.Constant`.
-    loss : keras.losses.Loss or callable
-        The loss function.
-    gain : float
-        The weight of its loss in the total loss.
-    model : Modely
-        The model it belongs to.
-
-    Each is read as an attribute or as a key, ``m.gain`` or ``m["gain"]``.
-    Setting ``name``, ``loss`` or ``gain`` changes the objective in its
-    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
-    next :meth:`~nnodely.Modely.train`. Setting anything else raises
-    ``TypeError``: register the objective again to change what it compares.
-    :meth:`remove` removes it from its model.
-
-    Basic Examples
-    --------------
-    >>> from nnodely import Input, Modely, Output
-    >>> x = Input("x", tw=1)
-    >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
-    >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
-    >>> fit = model.minimizers["fit"]
-    >>> fit.name, fit.source.name, fit.target.name, fit.gain
-    ('fit', 'y', 'y_meas', 1.0)
-    >>> fit.gain = 2.0
-    >>> model.minimizers[0]["gain"]
-    2.0
-
-    Possible Issues
-    ---------------
-    What it compares is set by :meth:`~nnodely.Modely.minimize`:
-
-    >>> fit.source = x
-    Traceback (most recent call last):
-        ...
-    TypeError: Minimizer 'fit': its name, loss and gain can be set, not its 'source'; ...
-
-    .. versionadded:: 2.0
-    """
-
-    _SETTABLE = ("name", "loss", "gain")
-    # No attribute of its own to set: one set by mistake would be lost.
-    __slots__ = ("_minimizer", "_model")
-
-    def __init__(self, minimizer: dict, model: "Modely"):
-        # The model's own entry, not a copy: what is set is set there.
-        object.__setattr__(self, "_minimizer", minimizer)
-        object.__setattr__(self, "_model", model)
-
-    def __getattr__(self, key):
-        if key in ("name", "source", "target", "loss", "gain"):
-            return self._minimizer[key]
-        if key == "model":
-            return self._model
-        raise AttributeError(f"Minimizer has no attribute {key!r}.")
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def __getitem__(self, key):
-        return self._model if key == "model" else self._minimizer[key]
-
-    def __iter__(self):
-        return iter([*self._minimizer, "model"])
-
-    def __len__(self):
-        return len(self._minimizer) + 1
-
-    def __repr__(self):
-        return object_repr(
-            self,
-            name=self.name,
-            source=self.source,
-            target=target_label(self.target),
-            loss=loss_name(self.loss),
-            gain=self.gain,
-            model=self._model,
-        )
-
-    def remove(self) -> None:
-        """Remove this objective from its model.
-
-        Pick it first, by its name or by its index in
-        :attr:`~nnodely.Modely.minimizers`. The next
-        :meth:`~nnodely.Modely.train` and :meth:`~nnodely.Modely.validate`
-        leave it out. The model needs no new build. The row stays readable,
-        but no longer belongs to the model: setting it raises.
-
-        Raises
-        ------
-        KeyError
-            When it is picked, if no objective has that name. Nothing is
-            removed.
-        IndexError
-            When it is picked, if the index is out of range.
-
-        See Also
-        --------
-        nnodely.Modely.minimize : Register an objective.
-        nnodely.Modely.minimizers : The objectives, as a table.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, Modely, Output
-        >>> x = Input("x", tw=1)
-        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
-        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
-        >>> model.minimizers["a"].remove()
-        >>> [m.name for m in model.minimizers]
-        ['b']
-
-        Options
-        -------
-        By index:
-
-        >>> model.minimizers[0].remove()
-        >>> len(model.minimizers)
-        0
-
-        Possible Issues
-        ---------------
-        A name no objective has raises, as in every table:
-
-        >>> model.minimizers["c"].remove()
-        Traceback (most recent call last):
-            ...
-        nnodely.core.dag.NameNotFound: ...no minimizer named 'c'...
-
-        A row removed is no longer the model's:
-
-        >>> fit = model.minimize("fit", "y", 1.0).minimizers["fit"]
-        >>> fit.remove()
-        >>> fit.gain = 2.0
-        Traceback (most recent call last):
-            ...
-        ValueError: Minimizer 'fit' was removed from model 'double': declare it again with minimize().
-
-        .. versionadded:: 2.0
-        """
-        model = self._model
-        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
-
-    def __setitem__(self, key, value):
-        if key not in self._SETTABLE:
-            raise TypeError(
-                f"Minimizer {self._minimizer['name']!r}: its name, loss and gain "
-                f"can be set, not its {key!r}; declare it again with minimize() "
-                "to change what it compares."
-            )
-        self._model._set_minimizer(self._minimizer, key, value)
-
-
-class Minimizers(Table):
-    """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
-    list of :class:`Minimizer`, printed as a table of the streams each
-    compares, its loss and its gain."""
-
-    _HEADER = ("minimizer", "source", "target", "loss", "gain")
-
-    _kind, _attr = "minimizer", "minimizers"
-
-    def __init__(self, minimizers: list[Minimizer]):
-        super().__init__(minimizers)
-
-    def __str__(self):
-        rows = [
-            (
-                m.name,
-                m.source.name,
-                str(target_label(m.target)),
-                loss_name(m.loss),
-                str(m.gain),
-            )
-            for m in self
-        ]
-        return _table(self._HEADER, [("", rows)], indexed=True)
-
-
 def _refresh_keras_inputs(model: Modely) -> None:
     """Give every Input the model reads a Keras input of its name now: an
-    Input renamed since it was declared - ``x.name = "speed"`` - keeps the
-    Keras input of its first name, which the data would be keyed by."""
+    Input renamed since it was declared, as by ``x.name = "speed"``, keeps
+    the Keras input of its first name, which the data would be keyed by."""
     for node in _nodes_and_models(model)[0]:
         if isinstance(node, Input) and node._input.name != node.name:
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
 
 
 def _rename_hidden_states(model: Modely) -> None:
-    """Give a free name to every state a layer keeps in an Input of its own
-    - Integrate, Derivative, Buffer - that has the name of another Input the
-    model reads: named after the layer and its signal, ``tank_rate``, it can
+    """Give a free name to every state a layer (Integrate, Derivative,
+    Buffer) keeps in an Input of its own that has the name of another Input
+    the model reads: named after the layer and its signal, ``tank_rate``, it can
     be named like an Input of the user's, ``tank_rate`` too. The user never
     names or reads it, so it yields. The data is fed by input name, so the
-    model could not be built otherwise."""
+    model could not be built otherwise.
+
+    A hidden state the user named, ``x.feedback(stream, hidden=True)``, keeps
+    its name, as any Input of the user's: one named like another Input the
+    model reads is refused."""
     inputs = [node for node in _nodes_and_models(model)[0] if isinstance(node, Input)]
-    taken = {node.name: node for node in inputs if not node._hidden}
+    taken: dict[str, Input] = {}
     for node in inputs:
-        if node._hidden and taken.setdefault(node.name, node) is not node:
-            node.name = free_name(node.name, taken)
+        if node._hidden and not node._hidden_by_user:
+            continue
+        other = taken.setdefault(node.name, node)
+        if other is not node and (node._hidden_by_user or other._hidden_by_user):
+            raise ValueError(
+                f"Model {model.name!r} reads two Inputs named {node.name!r}, "
+                "and one is a hidden state, fed back with hidden=True. A hidden "
+                "state keeps the name it was given, and the Inputs of a model "
+                "are told apart by name: give the state a name of its own."
+            )
+    for node in inputs:
+        if (
+            node._hidden
+            and not node._hidden_by_user
+            and taken.setdefault(node.name, node) is not node
+        ):
+            node.name = _free_name(node.name, taken)
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
             taken[node.name] = node
 

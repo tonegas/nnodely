@@ -1,10 +1,10 @@
 """Name tags: how the objects of a model are picked when names clash.
 
-Nothing keeps two objects from sharing a name - layers named alike by hand, a
+Nothing keeps two objects from sharing a name: layers named alike by hand, a
 block and the model calling it, two copies of one loaded model. A call taking
 a name looks it up among the objects the graph reaches, in that order: a name
 one object carries picks it; one several carry raises listing them with
-their index - the index column of the table - which picks one, ``parameters[2]``;
+their index (the index column of the table), which picks one, ``parameters[2]``;
 renaming one, ``obj.name = "new"``, gives each a name of its own. An item is
 picked by its name or by its index, never both. Inside nnodely the objects themselves are
 used, so an object renamed is still found: a renamed Input is read by its new
@@ -28,7 +28,6 @@ from nnodely import (
     Input,
     Integrate,
     Modely,
-    ModelyLoop,
     Output,
     Parameter,
 )
@@ -359,11 +358,15 @@ def test_a_kept_state_yields_its_name_to_an_input_of_the_user():
         outputs=[Output("tag_level", Integrate(dt=1.0, name="tag_tank")(rate))],
     ).build()
     q, mine = Input("tag_q", tw=1), Input("tag_tank_tag_rate", tw=1)
-    sim = ModelyLoop(
-        "tag_sim",
-        inputs=[q, mine],
-        outputs=[Output("tag_lv", plant([q])), Output("tag_mine", mine * 1.0)],
-    ).build()
+    sim = (
+        Modely(
+            "tag_sim",
+            inputs=[q, mine],
+            outputs=[Output("tag_lv", plant([q])), Output("tag_mine", mine * 1.0)],
+        )
+        .loop()
+        .build()
+    )
 
     result = sim(
         {
@@ -413,7 +416,7 @@ def test_a_class_saved_by_its_name_alone_loads_when_one_class_has_it(tmp_path):
     # Output and Input: one class each of that name.
     names = [node["class_name"] for node in saved["nodes"]]
     assert "Sin" in names and "Input" in names
-    # Sin: nnodely's and this module's - which one is not known.
+    # Sin: nnodely's and this module's; which one is not known.
     with pytest.raises(ValueError, match=r"2 classes are named 'Sin'"):
         Modely.load(tmp_path / "bare")
 
@@ -495,7 +498,7 @@ def test_an_input_renamed_after_the_build_is_read_by_its_new_name(tmp_path):
         DataLoader(model, source)
     model.build()
     assert set(DataLoader(model, source).as_dict()) == {"rn_speed", "rn_t"}
-    # Saved under its name now - without the minimizer and its target.
+    # Saved under its name now, without the minimizer and its target.
     model.save(tmp_path / "renamed")
     assert [node.name for node in Modely.load(tmp_path / "renamed").inputs] == [
         "rn_speed"
@@ -559,20 +562,20 @@ def test_a_minimizer_is_renamed_through_minimizers():
     t = Input("rn_t", tw=1)
     model.minimize("rn_fit", y, t).minimize("rn_other", y * 2.0, t).build()
 
-    model.minimizers["rn_fit"]["name"] = "rn_track"
-    assert [row["name"] for row in model.minimizers] == ["rn_track", "rn_other"]
-    assert model.minimizers["rn_track"]["source"] is y
+    model.minimizers["rn_fit"].name = "rn_track"
+    assert [row.name for row in model.minimizers] == ["rn_track", "rn_other"]
+    assert model.minimizers["rn_track"].source is y
     with pytest.raises(KeyError, match="no minimizer named 'rn_fit'"):
         model.minimizers["rn_fit"]
     # Each name its own; a name like another's validation key is no clash,
     # its loss is logged as loss_val_rn_other, that one's as val_loss_rn_other.
     with pytest.raises(ValueError, match="has a minimizer named 'rn_other' already"):
-        model.minimizers["rn_track"]["name"] = "rn_other"
-    model.minimizers["rn_track"]["name"] = "val_rn_other"
-    model.minimizers["val_rn_other"]["name"] = "rn_track"
+        model.minimizers["rn_track"].name = "rn_other"
+    model.minimizers["rn_track"].name = "val_rn_other"
+    model.minimizers["val_rn_other"].name = "rn_track"
     # The loss is logged under the new name from the next train.
     data = DataLoader(model, {"rn_x": np.arange(8.0), "rn_t": np.arange(8.0)})
-    trained = model.train(data, epochs=1, printer=None)
+    trained = model.train(data, epochs=1, verbose=False)
     assert "loss_rn_track" in trained.losses
 
 
@@ -622,10 +625,12 @@ def test_a_gradient_follows_the_input_it_differentiates_renamed(tmp_path):
     )
 
 
-def test_a_modelyloop_input_is_renamed_on_the_modelyloop():
+def test_a_model_loop_input_is_renamed_on_the_model_loop():
     x, u = Input("rn_ml_x", tw=1), Input("rn_ml_u", tw=1)
     x.feedback(x + u)
-    sim = ModelyLoop("rn_sim", inputs=[x, u], outputs=[Output("rn_ml_out", x)]).build()
+    sim = (
+        Modely("rn_sim", inputs=[x, u], outputs=[Output("rn_ml_out", x)]).loop().build()
+    )
     steps = np.ones((1, 4, 1, 1), np.float32)
 
     # Its inputs are its own, the step's rolled out: renamed there, the data
@@ -672,12 +677,12 @@ def test_the_outputs_table_tells_the_stream_fed_back_by_its_object():
     other = u * 2.0
     after.name = other.name = "ft_s"
     x.feedback(after)
-    sim = ModelyLoop(
+    sim = Modely(
         "ft_sim",
         inputs=[x, u],
         outputs=[Output("ft_next", after), Output("ft_other", other)],
-    )
-    feeds = [row["feeds back"] for row in sim.outputs._rows]
+    ).loop()
+    feeds = [row["update"] for row in sim.outputs._rows]
     assert feeds == [["ft_x"], []]
 
 
@@ -722,7 +727,7 @@ def test_every_table_is_picked_by_name_or_index_and_renamed(table):
     for index, name in printed:
         same = items[name]
         assert same is items[index] or (
-            table == "minimizers" and same["source"] is items[index]["source"]
+            table == "minimizers" and same.source is items[index].source
         )
     assert items[-1].name == printed[-1][1]
     assert [item.name for item in items[:1]] == [printed[0][1]]
@@ -737,21 +742,58 @@ def test_every_table_is_picked_by_name_or_index_and_renamed(table):
     assert _index_column(again)[-1] == (len(printed) - 1, "all_renamed")
     with pytest.raises(KeyError, match=repr(old)):
         again[old]
-    # And the model still builds and runs on it - the last Input is the
+    # And the model still builds and runs on it: the last Input is the
     # target, which running does not read.
     model.build()
     data = {"all_x": _WINDOW, "all_w": np.ones((1, 1, 1), np.float32)}
     assert len(model(data)) == 2
 
 
+@pytest.mark.parametrize(
+    "table", ["parameters", "models", "inputs", "outputs", "minimizers"]
+)
+def test_every_table_refuses_to_be_changed_in_place(table):
+    # Made anew at every read: a tuple, so that changing it, which would
+    # leave the model as it was, raises instead.
+    model = _full_model()
+    items = getattr(model, table)
+    before = [item.name for item in items]
+
+    assert isinstance(items, tuple)
+    for method in ("append", "extend", "insert", "pop", "remove", "sort", "reverse"):
+        assert not hasattr(items, method)
+    assert hasattr(items, "clear") == (table == "minimizers")
+    with pytest.raises(TypeError):
+        items[0] = items[0]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del items[0]  # type: ignore[attr-defined]
+    assert [item.name for item in getattr(model, table)] == before
+
+
+def test_clearing_the_minimizers_removes_every_objective():
+    model = _full_model()
+    rows = model.minimizers
+
+    rows.clear()
+
+    assert len(model.minimizers) == 0
+    with pytest.raises(ValueError, match="No minimizers defined"):
+        model.build().train(
+            DataLoader(model, source={"all_x": np.ones(5), "all_w": np.ones(5)}),
+            verbose=False,
+        )
+
+
 def test_a_minimizer_is_renamed_as_any_object():
     model = _full_model()
 
-    # By attribute, as every other object, or by key.
+    # By attribute, as every other object, and never by key.
     model.minimizers[0].name = "all_track"
     assert [row.name for row in model.minimizers] == ["all_track", "all_reg"]
-    model.minimizers["all_reg"]["gain"] = 0.5
+    model.minimizers["all_reg"].gain = 0.5
     assert model.minimizers[1].gain == 0.5
+    with pytest.raises(TypeError):
+        model.minimizers[1]["gain"]  # type: ignore[index]
     # What it compares, or anything else, is not lost silently.
     with pytest.raises(TypeError, match="not its 'source'"):
         model.minimizers[0].source = model.outputs[1]
@@ -780,8 +822,8 @@ def test_a_validation_result_is_read_by_its_attributes():
     result = model.validate(data, verbose=False)
 
     # Each dictionary in the order of the minimizers table.
-    assert result.signals.keys() == ["all_fit", "all_reg"]
-    assert result.losses.keys() == ["loss", "loss_all_fit", "loss_all_reg"]
+    assert list(result.signals) == ["all_fit", "all_reg"]
+    assert list(result.losses) == ["loss", "loss_all_fit", "loss_all_reg"]
     # Not as a dict or a list: the error tells where the data is.
     with pytest.raises(TypeError, match=r"\.minimizers\['all_fit'\]"):
         result["all_fit"]
@@ -998,21 +1040,20 @@ def test_a_call_resolves_its_keys_to_the_inputs_at_once():
     np.testing.assert_allclose(to_numpy(result), [[[21.0]]])
 
 
-def test_a_modelyloop_state_keeps_the_row_of_its_input_renamed(tmp_path):
+def test_a_model_loop_state_keeps_the_row_of_its_input_renamed(tmp_path):
     x, u = Input("mr_x", tw=1), Input("mr_u", tw=1)
     x.feedback(x + u)
-    sim = ModelyLoop("mr_sim", inputs=[x, u], outputs=[Output("mr_out", x)]).build()
+    sim = Modely("mr_sim", inputs=[x, u], outputs=[Output("mr_out", x)]).loop().build()
     sim.inputs["mr_x"].name = "mr_position"
     sim.build()
     sim.save(tmp_path / "sim")
 
     # The state starts from the data of the Input renamed, by object: one row,
-    # in the ModelyLoop and in its loaded copy, a Modely.
+    # in the model.loop() rollout and in its loaded copy, a Modely.
     for model in (sim, Modely.load(tmp_path / "sim")):
         rows = model.inputs._rows
         assert [row["input"].name for row in rows] == ["mr_position", "mr_u"]
-        assert rows[0]["fed back with"] is not None
-        assert rows[0]["starts from"] == "its data, first step, else 0"
+        assert rows[0]["update"].endswith("mr_position₀ = 'mr_position' or 0")
 
 
 def test_every_lookup_resolves_a_key_alike():
@@ -1062,7 +1103,7 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
 
     # Keyed by the Inputs themselves, as a call is: once refused as missing.
     data = DataLoader(model, {x: values, w: values, "dk_t": values})
-    assert data.inputs == ["dk_x", "dk_w", "dk_t"]
+    assert list(data.as_dict()) == ["dk_x", "dk_w", "dk_t"]
     np.testing.assert_array_equal(data.get_input(x).ravel(), values)
     # format by Input: once ignored, x read its own column.
     frame = pd.DataFrame({"dk_x": values, "dk_w": 100 + values, "dk_t": values})
@@ -1076,26 +1117,26 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
         DataLoader(model, {Input("dk_x", tw=1): values, "dk_w": values, "dk_t": values})
 
     # Made before the model was built again under other names, it is refused
-    # with the names on both sides - once Keras's own error, in train.
+    # with the names on both sides (once Keras's own error, in train).
     w.name = "dk_w2"
     model.build()
     with pytest.raises(
         ValueError, match=r"reads the inputs \['dk_w2'\], which the data"
     ):
-        model.train(data, epochs=1, printer=None)
+        model.train(data, epochs=1, verbose=False)
 
 
 def test_a_loop_tells_a_state_inside_a_block_by_object():
     # A fed-back Input inside a block the body calls is a state of the loop:
-    # given as a call key, it is that state - once "not an input the body
-    # model reads", since only the copies of the body's own were matched.
+    # given as a call key, it is that state (once "not an input the body
+    # model reads", since only the copies of the body's own were matched).
     s, u = Input("is_s", tw=1), Input("is_u", tw=1)
-    s.feedback(s + u)
-    block = Modely("is_block", inputs=[u], outputs=[Output("is_y", s * 1.0)]).build()
+    s.feedback(s + u, hidden=True)
+    block = Modely("is_block", inputs=[u], outputs=[Output("is_y", s + u)]).build()
     v = Input("is_v", tw=1)
     body = Modely("is_body", inputs=[v], outputs=[Output("is_o", block([v]))]).build()
     loop = Loop(f=body)
-    with pytest.raises(ValueError, match="'is_s' is fed back: give its initial value"):
+    with pytest.raises(ValueError, match="'is_s' is a hidden state, the model's own"):
         loop({s: Input("is_pushes", seq=3, tw=1)})
 
 

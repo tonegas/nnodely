@@ -1,10 +1,10 @@
 """The layout of a stream in a tensor, as ``nnodely.core.shape`` owns it:
-``(batch, *seq, tw, *dim)`` - the sequence axes outermost first, where a
+``(batch, *seq, tw, *dim)``: the sequence axes outermost first, where a
 Loop rolls out, then the window, where temporal operations act, then the
 features.
 
-The first tests check what any layout must keep - every axis has one place, a
-shape reads back from its tensor, a rollout lands on the outer axis - rather
+The first tests check what any layout must keep (every axis has one place, a
+shape reads back from its tensor, a rollout lands on the outer axis) rather
 than where the axes are. The last ones fix how streams of different shapes
 combine.
 """
@@ -53,8 +53,7 @@ def test_every_axis_of_a_shape_has_one_place_in_the_tensor(shape):
 def test_the_window_follows_the_sequence_and_the_outer_axis_comes_first(shape):
     sizes = _tensor(shape).shape
     assert shape.tw_axis == 1 + shape.seq_rank
-    assert sizes[OUTER_AXIS] == shape.outer
-    assert shape.outer == (shape.seq[0] if shape.seq else shape.tw)
+    assert sizes[OUTER_AXIS] == (shape.seq[0] if shape.seq else shape.tw)
 
 
 def test_a_stream_has_a_window_of_at_least_one_sample():
@@ -100,14 +99,13 @@ def test_a_rollout_is_a_new_outer_sequence_axis(shape):
     rolled = shape.with_seq(9)
     assert rolled.seq == (9, *shape.seq)
     assert (rolled.tw, rolled.dim) == (shape.tw, shape.dim)
-    assert rolled.outer == 9
     assert _tensor(rolled).shape[OUTER_AXIS] == 9
     assert rolled.without_outer_seq().dimensions == shape.dimensions
 
 
 def test_without_a_sequence_the_outer_axis_is_the_window():
     shape = Shape(dim=3, tw=5)
-    assert shape.outer == shape.tw == 5
+    assert shape.tw == 5
     assert shape.tw_axis == OUTER_AXIS
 
 
@@ -181,7 +179,7 @@ def test_a_value_declares_its_sequence_and_window_sizes():
     assert Parameter("r_time", value=[1.0, 2.0]).shape.dimensions == ((), None, (2,))
     # The window is one size.
     with pytest.raises(ValueError, match="tw is the length of the window"):
-        Parameter("s_time", value=value, tw=(2, 1))
+        Parameter("s_time", value=value, tw=(2, 1))  # type: ignore[arg-type]
 
 
 ## NEW INPUT DEFINITION: Time set only at declaration level

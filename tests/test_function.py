@@ -1,7 +1,7 @@
 import keras
 import numpy as np
 import pytest
-from conftest import requires_onnx_export, to_numpy
+from conftest import to_numpy
 
 from nnodely import DataLoader, Input, KerasFunction, Linear, Modely, Output
 
@@ -131,7 +131,7 @@ def test_keras_function_trains_the_weights_of_its_layer():
     model.build()
 
     data = DataLoader(model, source={"kf_train_x": np.ones((1, 1), dtype=np.float32)})
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, printer=None)
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, verbose=False)
 
     np.testing.assert_allclose(to_numpy(gain.gain), 2.0, rtol=1e-5)
 
@@ -145,10 +145,10 @@ def test_keras_function_rejects_what_is_not_a_keras_layer():
 
         KerasFunction(NeedsArguments)
     with pytest.raises(TypeError, match="keras.layers.Layer subclass or instance"):
-        KerasFunction(lambda x: x * 2)
+        KerasFunction(lambda x: x * 2)  # type: ignore[arg-type]
     # An nnodely layer is not a Keras layer: it is used as it is.
     with pytest.raises(TypeError, match="keras.layers.Layer subclass or instance"):
-        KerasFunction(Linear(features=1))
+        KerasFunction(Linear(features=1))  # type: ignore[arg-type]
 
 
 def _custom_function_model():
@@ -212,7 +212,6 @@ def test_keras_functions_save_load_and_export_to_keras(tmp_path):
 
 
 @pytest.mark.slow
-@requires_onnx_export
 def test_keras_functions_export_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _custom_function_model()
@@ -220,7 +219,7 @@ def test_keras_functions_export_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "kf_saved")
-    result = Modely.validate_onnx(tmp_path / "kf_saved.onnx", data, return_dict=True)
+    result = Modely.run_onnx(tmp_path / "kf_saved.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _SAVED_OUTPUTS:

@@ -8,6 +8,18 @@ error messages. Where a method name uses another word, as ``minimize`` and
 .. glossary::
    :sorted:
 
+   option
+      An argument that takes one of a fixed set of names, such as the
+      ``method`` of :class:`~nnodely.IntegrateStep`. Each set is a
+      ``StrEnum`` of the module that uses it, such as
+      :class:`~nnodely.IntegrationMethod`: its members are the strings
+      themselves, so ``method="trapezoidal"`` and
+      ``method=IntegrationMethod.TRAPEZOIDAL`` are the same, and the model
+      saves the string. The others are :class:`~nnodely.OdeMethod`,
+      :class:`~nnodely.InterpolationMode`, :class:`~nnodely.MembershipName`,
+      :class:`~nnodely.EquationFunction` and :class:`~nnodely.OnShort`. ``seq`` is no option: a number, or ``"dyn"``
+      for a dynamic sequence.
+
    stream
       A node of the graph of a model: an :class:`~nnodely.Input`, a
       :class:`~nnodely.Parameter`, a :class:`~nnodely.Constant`, or the result
@@ -50,7 +62,7 @@ error messages. Where a method name uses another word, as ``minimize`` and
       :meth:`~nnodely.Modely.minimize` between a *source* stream and a
       *target*. Its name labels its loss in the training history. The method
       names call it a *minimizer*: :attr:`~nnodely.Modely.minimizers`,
-      :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`.
+      :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`.
 
    target
       What an objective compares its source with: an Input read from the
@@ -73,17 +85,19 @@ error messages. Where a method name uses another word, as ``minimize`` and
       An Input fed back with a value the model computes, so that the next
       step reads it. Also called a *fed-back Input*. Declared with
       :meth:`Input.feedback() <nnodely.Input.feedback>`, or with the
-      ``feedback`` of a :class:`~nnodely.Loop`.
+      ``feedback`` of a :class:`~nnodely.Loop`. A state is declared among the
+      inputs of its model, or hidden, ``hidden=True``: the model's own memory,
+      which starts from its ``init``.
 
    body
-      The one-step model a :class:`~nnodely.Loop` or a
-      :class:`~nnodely.ModelyLoop` rolls out.
+      The one-step model a :class:`~nnodely.Loop` or
+      :meth:`Modely.loop() <nnodely.Modely.loop>` rolls out.
 
    step
-      One execution of a body in a rollout, ``k``. In a
-      :class:`~nnodely.ModelyLoop`, a state holds its value at the end of step
-      ``k - 1``, and the stream it is fed back with its value at the end of
-      step ``k``.
+      One execution of a body in a rollout, ``k``. In the rollout of
+      :meth:`Modely.loop() <nnodely.Modely.loop>`, a state holds its value at
+      the end of step ``k - 1``, and the stream it is fed back with its value
+      at the end of step ``k``.
 
    mask
       Marks the real steps of rollouts padded to a common length, when

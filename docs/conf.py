@@ -67,6 +67,7 @@ nitpick_ignore_regex = [
     ("py:class", r".*\s.*"),
     ("py:class", r"(keras|numpy|np|pandas|pd|sympy|matplotlib|pathlib)\..*"),
     ("py:class", r"str|int|float|bool|dict|list|tuple|callable|None|y_true|y_pred"),
+    ("py:class", r"Stream|Shape"),
 ]
 
 exclude_patterns = ["_build", "**.ipynb_checkpoints"]
@@ -99,21 +100,10 @@ epub_copyright = "2024-2026, Gastone Pietro Rosati Papini"
 # Methods every layer has for Keras or for the graph, which a user never calls.
 _INTERNAL_MEMBERS = {
     "build_layer",
-    "call",
     "compute_output_shape",
     "from_config",
     "get_config",
-    "input_signature",
     "output_shape",
-    # the hooks Keras calls on a training printer
-    "on_epoch_begin",
-    "on_epoch_end",
-    "on_train_batch_begin",
-    "on_train_batch_end",
-    "on_train_begin",
-    "on_train_end",
-    "set_model",
-    "set_params",
 }
 
 

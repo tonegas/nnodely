@@ -1,18 +1,3 @@
-"""The derivative of a Stream with respect to an Input.
-
-It is configured first and then called on the Stream to differentiate, like
-every other layer::
-
-    Gradient(order=1, wrt=x)(fun)        # d fun / d x   (automatic differentiation)
-
-``Gradient`` is exact: the sub-graph that produces ``fun`` is differentiated
-by the backend's automatic differentiation, so any relation in between
-(activations, Fir/Linear weights, a whole sub-network) is taken into account.
-The derivatives with respect to time are
-:class:`~nnodely.layers.calculus.DerivativeStep` and
-:class:`~nnodely.layers.calculus.Derivative`.
-"""
-
 from __future__ import annotations
 
 import keras
@@ -52,8 +37,8 @@ def _input_ancestors(node) -> list[Input]:
 def _differentiate(function_model, inputs, wrt_index: int, order: int, training):
     """``order``-th derivative of ``function_model`` w.r.t. its ``wrt_index``-th input.
 
-    The backend's own autodiff is used, so the result is differentiable again
-    - both to nest derivatives and to train through them.
+    The backend's own autodiff is used, so the result is differentiable
+    again, both to nest derivatives and to train through them.
     """
     backend = keras.backend.backend()
     arguments = list(inputs)
@@ -130,7 +115,7 @@ class GradientImpl(keras.layers.Layer):
     The layer is applied to the sub-graph's own source tensors, not to the
     value of the relation it differentiates: a value carries no derivative,
     so the relation has to be re-evaluated under the backend's autodiff.
-    The sub-model shares its layers - and therefore its weights - with the
+    The sub-model shares its layers, and therefore its weights, with the
     graph that produced it.
     """
 
@@ -205,7 +190,7 @@ class Gradient(Layer):
         The order of the derivative, ``1`` or ``2``.
     wrt : Input
         The Input to differentiate with respect to, as declared in the model
-        that holds the layer. It is required.
+        that holds the layer. It is required, and passed by name.
     name : str, optional
         The name of the layer. The default is ``Gradient`` followed by a
         number.
@@ -254,9 +239,9 @@ class Gradient(Layer):
 
     * ``wrt`` is a state of the block, a fed-back Input. Each call of the
       block has its own copy of the state, one per call in a :class:`Loop`
-      or a :class:`ModelyLoop`, and the Gradient of each call differentiates
-      against the copy of that call. The Parameters stay one, shared by the
-      calls.
+      or the rollout of :meth:`Modely.loop`, and the Gradient of each call
+      differentiates against the copy of that call. The Parameters stay one,
+      shared by the calls.
     * ``wrt`` is an input of the block. A call replaces it with the stream
       it is called on, even an Input (``block([z, w])``): the Gradient has
       no Input left to differentiate against, and raises when the model is
@@ -345,7 +330,7 @@ class Gradient(Layer):
     built:
 
     >>> z = Input("z")
-    >>> Modely("unrelated", inputs=[x, z], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
+    >>> Modely("unrelated", inputs=[x], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
     Traceback (most recent call last):
         ...
     ValueError: ...the differentiated relation does not depend on input 'z' (it reads ['x'])...
@@ -353,7 +338,7 @@ class Gradient(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, order: int = 1, wrt: Input | None = None, name=None):
+    def __init__(self, order: int = 1, *, wrt: Input, name: str | None = None):
         if order not in _SUPPORTED_ORDERS:
             raise ValueError(
                 f"Gradient supports order in {list(_SUPPORTED_ORDERS)}, got {order}."
@@ -374,8 +359,8 @@ class Gradient(Layer):
         super().__init__(name=name, order=self._order, wrt=self._wrt)
 
     def _copied(self, memo: dict) -> None:
-        # The copy of the Input this call made - a state of a block, one per
-        # call in a Loop - shares its Keras input until renamed; a stream the
+        # The copy of the Input this call made (a state of a block, one per
+        # call in a Loop) shares its Keras input until renamed. A stream the
         # call binds the Input to is another relation, not differentiated.
         copy = memo.get(self._wrt)
         if isinstance(copy, Input) and copy._input is self._wrt._input:
@@ -403,13 +388,7 @@ class Gradient(Layer):
     # ------------------------------------------------------------------
     # Keras layer logic
     # ------------------------------------------------------------------
-    def build_layer(self):
-        raise RuntimeError(
-            f"{self.name}: a Gradient is built from the graph it "
-            "differentiates, not from its input value."
-        )
-
-    def call(self, xs):
+    def _call(self, xs):
         tensor = xs[0]
         sources = _source_input_tensors(tensor)
         # The Input by its Keras input, the one its copy in the graph reads.
@@ -431,8 +410,8 @@ class Gradient(Layer):
                 "replaced by the streams it is called with, so differentiate in "
                 "the model where the input is declared."
             )
-        # Built for the relation of this application: one built for another -
-        # in an earlier graph, or by another call of the block holding it -
+        # Built for the relation of this application: one built for another
+        # (in an earlier graph, or by another call of the block holding it)
         # would compute that one. Its weights are those of the relation's
         # layers, shared through their own nodes, so none is lost.
         function_model = keras.Model(
@@ -455,7 +434,7 @@ class Gradient(Layer):
         # The Input is saved by its position among the Inputs the relation it
         # differentiates is computed from, and found there again.
         config = super().get_config()
-        # A copy of the Input - in a flattened graph - shares its Keras input.
+        # A copy of the Input in a flattened graph shares its Keras input.
         config["wrt"] = next(
             index
             for index, node in enumerate(_input_ancestors(self._preds[0]))

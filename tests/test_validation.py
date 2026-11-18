@@ -80,7 +80,7 @@ def test_relative_indicators_are_undefined_on_a_constant_target():
 
 
 def test_every_element_of_the_tensor_is_scored():
-    ## (samples, tw, dim) - an error hidden past the first scalar still counts
+    ## (samples, tw, dim): an error hidden past the first scalar still counts
     true = np.zeros((4, 3, 2))
     pred = np.zeros((4, 3, 2))
     pred[2, 2, 1] = 1.0
@@ -123,7 +123,7 @@ def test_non_finite_predictions_are_counted_and_not_hidden():
     pred[2] = np.nan
     signal = _signal(np.linspace(0, 1, 6)[:, None], pred)
 
-    assert signal.non_finite() == 1
+    assert signal.non_finite == 1
     assert np.isnan(signal.fit_pct())
     assert np.isnan(signal.rmse())
 
@@ -212,7 +212,7 @@ def test_padded_points_are_left_out_of_every_indicator():
     rng = np.random.default_rng(1)
     true = rng.normal(size=(3, 5, 1, 1))
     pred = true + rng.normal(scale=0.1, size=true.shape)
-    ## Whatever a padded step holds - a rollout that diverged included - is
+    ## Whatever a padded step holds (a rollout that diverged included) is
     ## not the model's error
     pred[~real] = np.array([1e6, -np.inf, np.nan, 7.0])[:, None, None]
 
@@ -220,7 +220,7 @@ def test_padded_points_are_left_out_of_every_indicator():
     alone = _signal(true[real], pred[real], window=True)
 
     assert (signal.scored, signal.missing) == (11, 4)
-    assert signal.non_finite() == 0
+    assert signal.non_finite == 0
     ## A point without a target is NaN in both signals
     assert np.isnan(signal.source[~real]).all() and np.isnan(signal.target[~real]).all()
     for key in ("rmse", "mae", "max_error", "bias", "std_error", "fit_pct", "r2"):
@@ -256,7 +256,7 @@ def test_validate_scores_every_minimizer():
 
     assert result.model == name
     assert result.samples == 20
-    assert result.signals.keys() == ["tracking"]
+    assert list(result.signals) == ["tracking"]
     assert result.signals["tracking"].rmse() == pytest.approx(0.0, abs=1e-6)
     ## The result is read by its attributes, not as a dict or a list
     with pytest.raises(TypeError, match="read by its attributes"):
@@ -325,61 +325,65 @@ def test_validate_draws_nothing_unless_asked():
     assert result.figures == []
 
 
-def test_validate_writes_one_png_per_minimizer(tmp_path):
+def test_plot_writes_one_png_per_minimizer(tmp_path):
     name = "figure_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 16)
 
-    result = model.validate(_data(model, name, values, values), out_dir=tmp_path)
+    result = model.validate(_data(model, name, values, values))
+    returned = result.plot(out_dir=tmp_path)
 
     written = sorted(p.name for p in tmp_path.glob("*.png"))
     assert written == [f"{name}_0_tracking.png"]
     assert result.figures == [str(tmp_path / f"{name}_0_tracking.png")]
+    assert returned == result.figures
 
 
-def test_validate_writes_a_file_of_its_own_for_every_figure(tmp_path):
+def test_plot_writes_a_file_of_its_own_for_every_figure(tmp_path):
     # Names alike once slugged, or alike but for case, and a minimizer named
     # like the history figure: each figure is a file of its own.
     name = "files_model"
     model = _identity_model(name)
     for other in ("history", "a b", "a_b", "Tracking"):
         prediction, reference = (
-            model.minimizers[0]["source"],
-            model.minimizers[0]["target"],
+            model.minimizers[0].source,
+            model.minimizers[0].target,
         )
         model.minimize(other, source=prediction, target=reference)
     model.build()
     values = np.linspace(0.0, 1.0, 16)
     data = _data(model, name, values, values)
-    history = model.train(train_data=data, epochs=1, batch_size=4, printer=None)
+    history = model.train(train_data=data, epochs=1, batch_size=4, verbose=False)
 
-    result = model.validate(data, out_dir=tmp_path, history=history)
+    result = model.validate(data)
+    result.plot(out_dir=tmp_path, history=history)
 
     written = sorted(p.name.lower() for p in tmp_path.glob("*.png"))
     assert len(written) == len(set(written)) == 6
     assert len(result.figures) == 6
 
 
-def test_validate_adds_a_history_figure_when_given_one(tmp_path):
+def test_plot_adds_a_history_figure_when_given_one(tmp_path):
     name = "history_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 16)
     data = _data(model, name, values, values)
-    history = model.train(train_data=data, epochs=2, batch_size=4, printer=None)
+    history = model.train(train_data=data, epochs=2, batch_size=4, verbose=False)
 
-    model.validate(data, out_dir=tmp_path, history=history)
+    model.validate(data).plot(out_dir=tmp_path, history=history)
 
     assert (tmp_path / f"{name}_history.png").exists()
 
 
-def test_validate_shows_the_figures_on_request(monkeypatch):
+def test_plot_shows_the_figures_on_request(monkeypatch):
     name = "show_model"
     model = _identity_model(name)
     values = np.linspace(0.0, 1.0, 10)
     shown = []
     monkeypatch.setattr("matplotlib.pyplot.show", lambda *a, **k: shown.append(True))
 
-    result = model.validate(_data(model, name, values, values), show=True)
+    result = model.validate(_data(model, name, values, values))
+    result.plot(show=True)
 
     assert shown == [True]
     ## Shown but not saved: there was nowhere to save to
@@ -402,11 +406,11 @@ def test_validate_requires_a_built_model_and_a_minimizer():
     model = Modely("unbuilt", inputs=[x], outputs=[Output("unbuilt_out", x)])
 
     with pytest.raises(ValueError, match="not built"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
     model.build()
     with pytest.raises(ValueError, match="No minimizers"):
-        model.validate(None)
+        model.validate(None)  # type: ignore[arg-type]
 
 
 def test_validate_reports_its_table_and_returns_the_numbers(capsys):
@@ -503,7 +507,7 @@ def test_validate_reports_the_loss_train_reports_on_the_same_data():
         optimizer="sgd",
         lr=0.0,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
     result = model.validate(data, verbose=False)
 
@@ -527,7 +531,7 @@ def test_a_short_last_batch_weighs_only_its_samples():
         epochs=1,
         batch_size=4,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
     loss = model.validate(data, verbose=False).losses["loss_tracking"]
 
@@ -558,9 +562,10 @@ def test_padded_simulations_are_scored_as_if_each_ran_alone():
     ## two shorter simulations to the longest
     assert (padded.scored, padded.missing) == (6 + 3 + 5, 4)
     assert all(signal.missing == 0 for signal in alone)
+    # Every point of each alone has a target: all of them, one per row.
     reference = _signal(
-        np.concatenate([signal.target[signal.valid] for signal in alone]),
-        np.concatenate([signal.source[signal.valid] for signal in alone]),
+        np.concatenate([signal.target.reshape(-1, 1) for signal in alone]),
+        np.concatenate([signal.source.reshape(-1, 1) for signal in alone]),
     )
     for key in (
         "rmse",
@@ -591,12 +596,12 @@ _NAMES = {"source": "p", "target": "r"}
 
 
 def test_a_wide_signal_caps_the_drawn_lines_but_never_the_metrics():
-    channels = validation_plot.MAX_LINES + 4
+    channels = validation_plot._MAX_LINES + 4
     true = np.zeros((20, channels))
     pred = np.tile(np.arange(channels, dtype=float), (20, 1))
     signal = _signal(true, pred)
 
-    figure = validation_plot.figure_signal(signal, _NAMES)
+    figure = validation_plot._figure_signal(signal, _NAMES)
     try:
         ## Metrics see every channel; the figure draws the worst few
         assert signal.shape.dim == (channels,)
@@ -610,7 +615,7 @@ def test_the_response_and_error_panels_share_an_x_axis():
     values = np.linspace(0.0, 1.0, 20)[:, None]
     signal = _signal(values, values + 0.05)
 
-    figure = validation_plot.figure_signal(signal, _NAMES)
+    figure = validation_plot._figure_signal(signal, _NAMES)
     try:
         ## Zooming a stretch of the run has to zoom both panels
         response, error = figure.axes[0], figure.axes[1]
@@ -625,7 +630,7 @@ def test_a_rollout_figure_draws_the_error_step_by_step():
     pred = np.broadcast_to(0.1 * np.arange(1.0, 6.0)[:, None, None], true.shape)
     signal = _signal(true, pred, valid=real[:, :, None, None], seq_rank=1, window=True)
 
-    figure = validation_plot.figure_signal(signal, _NAMES)
+    figure = validation_plot._figure_signal(signal, _NAMES)
     try:
         steps = figure.axes[-1]
         assert steps.get_title() == "error at each step of the sequence"
@@ -638,12 +643,12 @@ def test_a_rollout_figure_draws_the_error_step_by_step():
 
 
 def test_the_history_figure_is_skipped_without_curves():
-    assert validation_plot.figure_history({}) is None
-    assert validation_plot.figure_history({"loss": []}) is None
+    assert validation_plot._figure_history({}) is None
+    assert validation_plot._figure_history({"loss": []}) is None
 
 
 def test_the_history_figure_draws_every_curve():
-    figure = validation_plot.figure_history(
+    figure = validation_plot._figure_history(
         {"loss": [1.0, 0.5, 0.25], "val_loss": [1.1, 0.6, 0.4]}
     )
     try:

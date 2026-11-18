@@ -180,13 +180,18 @@ Step 5: the model
    vehicle.build()
 
 A model declares every Input it reads among its ``inputs``. That includes an
-Input it gives a model it calls, and an Input a layer starts from, as in
-``Integrate(init=x0)``. An Input read without being declared is refused when
-the model is declared. Two kinds of Input may be left out:
+Input it gives a model it calls, an Input a layer starts from, as in
+``Integrate(init=x0)``, and a fed-back Input. An Input read without being
+declared is refused when the model is declared. Two kinds of Input are left
+out:
 
-- a fed-back Input (see :doc:`recurrent`);
+- a hidden state, ``x.feedback(stream, hidden=True)``: the model's own
+  memory, which cannot be declared (see :doc:`recurrent`);
 - an Input read only by an objective, such as a target (see
   :doc:`training`).
+
+An Input declared but not read by the outputs, in one step or through the
+streams the model feeds back, is refused too.
 
 Declare objectives and feedback **before** ``build()``, because they add to
 the graph. Building again keeps the weights the model holds, for example
@@ -229,7 +234,7 @@ Other forms of the call:
   targets, are ignored.
 
 The call needs every input the outputs read: ``print(vehicle.inputs)``
-marks them ``required`` in its ``data`` column.
+marks them ``required`` in its ``flags`` column.
 
 .. warning::
 
@@ -242,13 +247,14 @@ marks them ``required`` in its ``data`` column.
 Step 7: weights
 ---------------
 
-After ``build()``, the stream returned by a layer with weights exposes them
-as Keras variables:
+A layer with weights, and the stream it returns, give them by name with
+``weights``, as :class:`~nnodely.Parameter` objects:
 
 .. code-block:: python
 
-   print(slope.kernel.shape, slope.bias.shape)
-   slope.kernel.assign(np.zeros((3, 1), dtype="float32"))
+   kernel, bias = slope.weights["kernel"], slope.weights["bias"]
+   print(kernel.value.shape, bias.value.shape)
+   kernel.param.assign(np.zeros((3, 1), dtype="float32"))
    print(len(vehicle.parameters))
 
 .. code-block:: text
@@ -286,7 +292,6 @@ Printing a model shows its name, its inputs, its outputs and its objectives.
 
 .. code-block:: python
 
-   vehicle.summary()                    # the Keras summary of the built model
    vehicle.export_html("model_html")    # an interactive graph
 
 :meth:`~nnodely.Modely.export_html` writes an interactive page to open in a
@@ -318,9 +323,9 @@ recovers :math:`f = \sin z + 0.5 z^2`:
 
    zs = np.linspace(-2.0, 2.0, 400)
    data = DataLoader(equation_model, source={"z": zs, "f_measured": np.sin(zs) + 0.5 * zs**2})
-   equation_model.train(data, epochs=100, batch_size=32, lr=0.02, printer=None)
+   equation_model.train(data, epochs=100, batch_size=32, lr=0.02, verbose=False)
    learner.threshold = 0.01   # drop the coefficients smaller than 0.01 in magnitude
-   equation_model.train(data, epochs=30, batch_size=32, lr=0.002, printer=None)
+   equation_model.train(data, epochs=30, batch_size=32, lr=0.002, verbose=False)
    equation = learner.plot()
 
 Common errors
@@ -336,6 +341,9 @@ Common errors
    * - ``Model 'm' reads the Inputs ['x'], which are not among its inputs``
      - An Input the outputs read is not declared.
      - Add it to ``inputs=[...]``.
+   * - ``Model 'm' declares the Inputs ['x'] among its inputs, which its outputs do not read``
+     - A declared Input no output reads, such as a target.
+     - Remove it from ``inputs=[...]``: a target is found from the objective.
    * - ``expected shape=(None, 1, 1), found shape=(1, 3)``
      - An array without the shape the input declares.
      - Give every array the shape ``(batch, *seq, tw, *dim)`` of its input.

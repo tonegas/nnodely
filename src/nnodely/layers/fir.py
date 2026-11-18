@@ -1,5 +1,3 @@
-"""Finite impulse response layer."""
-
 from __future__ import annotations
 
 import keras
@@ -268,7 +266,10 @@ class Fir(Layer):
     """
 
     _weight_labels = ("kernel", "bias")
-    _weight_defaults = {"kernel": "glorot_uniform", "bias": "zeros"}
+    _weight_defaults = {
+        "kernel": keras.initializers.Constant(0.01),
+        "bias": keras.initializers.Constant(0.0),
+    }
 
     def __init__(
         self,
@@ -276,7 +277,7 @@ class Fir(Layer):
         kernel: Parameter | str | keras.initializers.Initializer = "glorot_uniform",
         bias: Parameter | str | keras.initializers.Initializer | bool = True,
         shared_kernel: bool = False,
-        name=None,
+        name: str | None = None,
     ):
         self._features = int(features)
         self._shared_kernel = bool(shared_kernel)
@@ -317,19 +318,6 @@ class Fir(Layer):
         # The window becomes one sample; the sequence is kept.
         shape = inputs[0].shape
         return shape.replace(dim=out_dim, tw=1)
-
-    @property
-    def kernel(self):
-        """The Keras variable of the Parameter holding the kernel, in that
-        Parameter's shape; None before :meth:`Modely.build`."""
-        return self._weight_value("kernel")
-
-    @property
-    def bias(self):
-        """The Keras variable of the Parameter holding the bias, in that
-        Parameter's shape; None without a bias or before
-        :meth:`Modely.build`."""
-        return self._weight_value("bias")
 
     def build_layer(self):
         return FirImpl(

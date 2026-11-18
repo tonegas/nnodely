@@ -4,8 +4,9 @@ Models
 .. currentmodule:: nnodely
 
 A :class:`Modely` is a model: a graph of streams from its inputs to its
-outputs, with the objectives that train it. A :class:`ModelyLoop` is a model
-declared one step at a time, whose states are fed back over a rollout.
+outputs, with the objectives that train it. :meth:`Modely.loop` returns the
+Modely of the rollout of a model declared one step at a time, whose states
+are fed back at every step.
 
 Guides: :doc:`../guide/models`, :doc:`../guide/training`,
 :doc:`../guide/recurrent`, :doc:`../guide/composition`,
@@ -18,13 +19,12 @@ Guides: :doc:`../guide/models`, :doc:`../guide/training`,
    :nosignatures:
 
    Modely
-   ModelyLoop
 
 An objective registered with :meth:`Modely.minimize` is a
-:class:`~nnodely.core.modely.Minimizer`, a row of :attr:`Modely.minimizers`:
+:class:`~nnodely.core.minimizer.Minimizer`, a row of :attr:`Modely.minimizers`:
 it is read, set and removed there, and never created directly.
 
-.. currentmodule:: nnodely.core.modely
+.. currentmodule:: nnodely.core.minimizer
 
 .. autosummary::
    :toctree: generated

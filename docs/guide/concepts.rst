@@ -170,9 +170,9 @@ Calling the **same layer object** twice applies the same weights twice:
    a = shared(speed)
    b = shared(speed * 2.0)   # same kernel and bias as a
 
-The weights of a layer are :class:`~nnodely.Parameter` objects. After
-``build()``, the stream a layer returns exposes them as Keras variables,
-``kernel`` and ``bias``, here ``a.kernel``.
+The weights of a layer are :class:`~nnodely.Parameter` objects, which
+``weights`` gives by name, on the layer and on the streams it returns:
+``shared.weights["kernel"]`` is ``a.weights["kernel"]``.
 
 .. _combining-streams:
 

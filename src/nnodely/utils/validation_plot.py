@@ -1,15 +1,3 @@
-"""Figures for a validation run.
-
-One figure per minimizer with four panels - response, error, parity, error
-distribution - and a fifth, the error at each step, for a signal with a
-sequence; plus one loss-curve figure when the losses of a training are passed.
-
-Figures are built with the normal Matplotlib pyplot interface, so when they
-are shown they come with the interactive toolbar: zoom, pan, rescale, edit
-curve and axis properties, and save. The response and error panels share an
-x axis, so zooming into a stretch of the run zooms both.
-"""
-
 from __future__ import annotations
 
 import os
@@ -22,7 +10,7 @@ from nnodely.core.validation import Signal
 
 #: Channels drawn per panel, worst first. Metrics always cover every channel;
 #: this only keeps a figure of a 64-channel signal readable.
-MAX_LINES = 6
+_MAX_LINES = 6
 
 # _TARGET_STYLE = dict(color="#2E3440", linewidth=1.4, linestyle="--", alpha=0.85)
 _PREDICT = ("#6F84FE", "#5B4BFB", "#80BFFF", "#7A3FE8", "#3FA7E8", "#9B6BFF")
@@ -32,7 +20,7 @@ def _points(signal: Signal) -> tuple[np.ndarray, np.ndarray]:
     """The source and the target at the points that have a target, laid out
     ``(points, channels)``."""
     channels = int(np.prod(signal.shape.dim))
-    keep = signal.valid.reshape(-1)
+    keep = signal._valid.reshape(-1)
     return (
         signal.source.reshape(-1, channels)[keep],
         signal.target.reshape(-1, channels)[keep],
@@ -41,14 +29,14 @@ def _points(signal: Signal) -> tuple[np.ndarray, np.ndarray]:
 
 def _worst_channels(signal: Signal) -> list[int]:
     order = np.argsort(np.ravel(signal.rmse(dim=True)))[::-1]
-    return sorted(int(index) for index in order[:MAX_LINES])
+    return sorted(int(index) for index in order[:_MAX_LINES])
 
 
 def _label(source: str, channels: int, channel: int) -> str:
     return source if channels == 1 else f"{source}[{channel}]"
 
 
-def figure_signal(signal: Signal, minimizer: dict):
+def _figure_signal(signal: Signal, minimizer: dict):
     """Response, error, parity and error distribution for one minimizer, and
     the error at each step when its signal has a sequence."""
     import matplotlib.pyplot as plt
@@ -131,7 +119,7 @@ def figure_signal(signal: Signal, minimizer: dict):
     residual = (source[:, channels] - target[:, channels]).ravel()
     residual = residual[np.isfinite(residual)]
     if residual.size:
-        # A perfect prediction - or a constant offset - has a residual with no
+        # A perfect prediction, or a constant offset, has a residual with no
         # spread to bin, and 40 bins across a zero-width range is an error.
         # The padded range keeps the edges strictly increasing either way.
         low, high = float(np.min(residual)), float(np.max(residual))
@@ -189,7 +177,7 @@ def figure_signal(signal: Signal, minimizer: dict):
     return figure
 
 
-def figure_history(history: dict[str, Any]):
+def _figure_history(history: dict[str, Any]):
     """Training and validation loss curves, if the history carries any."""
     import matplotlib.pyplot as plt
 
@@ -233,7 +221,7 @@ def _slug(text: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in text)
 
 
-def render(
+def _render(
     result: ValidationResult,
     *,
     out_dir: str | os.PathLike | None = None,
@@ -244,14 +232,14 @@ def render(
     import matplotlib.pyplot as plt
 
     # A file per minimizer is named by its index and its name: the index
-    # keeps apart names alike once slugged - "a b" and "a_b", "Fit" and "fit"
-    # on a file system blind to case - and keeps them from the history's.
+    # keeps apart names alike once slugged ("a b" and "a_b", "Fit" and "fit"
+    # on a file system blind to case) and keeps them from the history's.
     figures: list[tuple[str, Any]] = [
-        (f"{index}_{_slug(name)}", figure_signal(signal, result.minimizers[name]))
+        (f"{index}_{_slug(name)}", _figure_signal(signal, result.minimizers[name]))
         for index, (name, signal) in enumerate(result.signals.items())
     ]
     if history:
-        history_figure = figure_history(history)
+        history_figure = _figure_history(history)
         if history_figure is not None:
             figures.append(("history", history_figure))
 

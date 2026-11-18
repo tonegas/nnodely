@@ -1,5 +1,3 @@
-"""Batch normalization layer for nnodely."""
-
 from __future__ import annotations
 
 import keras
@@ -261,14 +259,14 @@ class BatchNorm(Layer):
     >>> w = Input("w", tw=2)
     >>> target = Input("target", tw=2)
     >>> y = BatchNorm(momentum=0.0, epsilon=0.0)(w)
-    >>> model = Modely("stats", inputs=[w, target], outputs=[Output("y", y)])
+    >>> model = Modely("stats", inputs=[w], outputs=[Output("y", y)])
     >>> model = model.minimize("fit", y, target).build()
     >>> sample = np.array([[[1.0], [3.0]]])
     >>> keras.ops.convert_to_numpy(model({"w": sample})["y"])  # mean 0, variance 1
     array([[[1.],
             [3.]]], dtype=float32)
     >>> data = DataLoader(model, {"w": sample, "target": np.array([[[-1.0], [1.0]]])}, windowed=True)
-    >>> history = model.train(data, epochs=1, printer=None)
+    >>> history = model.train(data, epochs=1, verbose=False)
     >>> keras.ops.convert_to_numpy(model({"w": sample})["y"])  # mean 2, variance 1
     array([[[-1.],
             [ 1.]]], dtype=float32)
@@ -318,7 +316,7 @@ class BatchNorm(Layer):
         epsilon: float = 1e-3,
         center: bool = True,
         scale: bool = True,
-        name=None,
+        name: str | None = None,
     ):
         self._axis = None if axis is None else int(axis)
         self._momentum = float(momentum)
@@ -352,7 +350,7 @@ class BatchNorm(Layer):
         # that cannot be probed with a dummy tensor.
         return inputs[0].shape
 
-    def input_signature(self, xs) -> tuple:
+    def _input_signature(self, xs) -> tuple:
         # The statistics hold one value for each position of the normalized
         # axis, whatever the length of the others: a dynamic sequence and a
         # fixed one share them.

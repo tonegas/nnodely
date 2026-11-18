@@ -28,7 +28,7 @@ A built model can be stored in three formats:
      - :meth:`~nnodely.Modely.export_keras`, :meth:`~nnodely.Modely.import_keras`
      - Use the network as a plain ``keras.Model``, for inference.
    * - ONNX file (``.onnx``)
-     - :meth:`~nnodely.Modely.export_onnx`, :meth:`~nnodely.Modely.validate_onnx`
+     - :meth:`~nnodely.Modely.export_onnx`, :meth:`~nnodely.Modely.run_onnx`
      - Deploy the network outside Python, with any ONNX runtime.
 
 .. code-block:: python
@@ -139,50 +139,82 @@ use :meth:`~nnodely.Modely.save` and :meth:`~nnodely.Modely.load`.
 Step 3: export to ONNX
 ----------------------
 
-Exporting to ONNX needs the ``onnx`` extra, ``pip install "nnodely[onnx]"``,
-and the **TensorFlow** or **PyTorch** backend. This block does not run on
-JAX:
+Every backend exports, with the converter its extra installs:
 
 .. code-block:: python
-   :class: skip-test
 
    model.export_onnx("exports")    # writes exports/filter.onnx
-   outputs = Modely.validate_onnx("exports/filter.onnx", sample, return_dict=True)
+   outputs = Modely.run_onnx("exports/filter.onnx", sample, return_dict=True)
    print(outputs["y"].shape)
 
-:meth:`~nnodely.Modely.validate_onnx` runs the exported file with ONNX
+.. code-block:: text
+   :class: output
+
+   (1, 1, 1)
+
+:meth:`~nnodely.Modely.run_onnx` runs the exported file with ONNX
 Runtime, to compare it with the original model. The model is exported as
 declared, without its objectives: only its outputs, and the inputs they
-read. ``batch_size`` fixes the batch axis of the exported graph, and
-``input_signature`` fixes the shape of every input.
+read.
+
+Every axis of an ONNX file is fixed:
+
+- the **batch** is one sample by default. ``batch_size=n`` exports a file
+  that computes ``n`` samples at every call;
+- every **sequence** has its declared length. A sequence of dynamic length,
+  ``seq=-1``, such as every Input of a rollout of
+  :meth:`~nnodely.Modely.loop` without ``seq``, has the length
+  ``seq`` gives; without it the export raises.
+
+The file refuses arrays of other shapes: export it again for another batch or
+another rollout length.
+
+.. code-block:: python
+
+   model.export_onnx("exports", "filter_batch", batch_size=4)
+   batch = {"x": np.random.rand(4, 10, 1).astype("float32")}
+   print(Modely.run_onnx("exports/filter_batch.onnx", batch)[0].shape)
+
+.. code-block:: text
+   :class: output
+
+   (4, 1, 1)
+
+A deployed model mostly runs one sample at a time, in a controller or an
+estimator. A batch of ``n`` serves the uses that run ``n`` samples at every
+call, with ``n`` known when the model is deployed:
+
+- sampling-based predictive control (MPPI, CEM), which rolls ``n``
+  candidate control sequences out through the model at every step;
+- particle filters and ensemble Kalman filters, which propagate ``n``
+  particles;
+- one model serving several vehicles, robots or tanks;
+- replaying a recorded dataset in another runtime, or Monte Carlo studies
+  over initial conditions.
 
 .. list-table:: ONNX support by backend
    :header-rows: 1
-   :widths: 40 20 25 15
+   :widths: 40 20 20 20
 
    * - Model
      - TensorFlow
      - PyTorch
      - JAX
-   * - Without a Loop or a Gradient
+   * - Without a Gradient, a Loop and a rollout of
+       :meth:`~nnodely.Modely.loop` included
      - yes
      - yes
-     - no
-   * - With a :class:`~nnodely.Loop`, or a :class:`~nnodely.ModelyLoop`
-     - yes; a dynamic rollout follows the length of the data
-     - yes, with the batch and the rollout of the data it was exported
-       with
-     - no
+     - yes
    * - With a :class:`~nnodely.Gradient` with respect to an Input
-     - yes, with a batch of one
+     - when tf2onnx converts the gradient of every layer it differentiates
+       (``Sin`` yes, ``Tanh`` no)
      - no
-     - no
+     - yes
 
 A derivative with respect to an Input records the backward pass in the
-exported graph. Its shape arithmetic only converts with a fixed batch axis,
-so such a model is exported with a batch of one, unless ``batch_size`` or
-``input_signature`` says otherwise. JAX cannot export ONNX at all: Keras has
-no ONNX exporter for it.
+exported graph. JAX exports it whatever it differentiates; the PyTorch
+exporter traces a forward pass only, and refuses it. The file computes what
+the model computes, up to float32 rounding.
 
 Step 4: draw the graph
 ----------------------
@@ -211,9 +243,18 @@ Common errors
      - The custom Keras class is not defined in this session.
      - Define it first, decorated with
        ``@keras.saving.register_keras_serializable()``.
-   * - ONNX export fails on JAX
-     - Keras cannot export ONNX from JAX.
-     - Export with ``KERAS_BACKEND=tensorflow`` or ``torch``.
+   * - ``ImportError: ONNX export on the jax backend needs the jax2onnx package``
+     - *nnodely* was installed without its backend extra, which brings the
+       converter.
+     - Install the extra of the backend, ``pip install "nnodely[jax]"``.
+   * - ``ValueError: Model 'm' reads 'x' as a sequence of dynamic length``
+     - An ONNX file has fixed shapes, and the model reads a sequence of
+       dynamic length.
+     - Give the length to export, ``export_onnx(..., seq=n)``.
+   * - ONNX Runtime: ``Got invalid dimensions for input``
+     - The file is run with another batch, or another sequence length, than
+       it was exported with.
+     - Export it again with ``batch_size=`` or ``seq=``.
 
 See also
 --------
@@ -222,5 +263,5 @@ See also
 :meth:`Modely.load <nnodely.Modely.load>`,
 :meth:`Modely.export_keras <nnodely.Modely.export_keras>`,
 :meth:`Modely.export_onnx <nnodely.Modely.export_onnx>`,
-:meth:`Modely.validate_onnx <nnodely.Modely.validate_onnx>`,
+:meth:`Modely.run_onnx <nnodely.Modely.run_onnx>`,
 :meth:`Modely.export_html <nnodely.Modely.export_html>`.

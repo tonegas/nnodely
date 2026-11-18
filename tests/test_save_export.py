@@ -62,8 +62,6 @@ from nnodely import (
     Asinh,
     Atanh,
     Cosh,
-    Expm1,
-    Log1p,
     Log2,
     Max,
     Maximum,
@@ -78,8 +76,9 @@ from nnodely import (
 )
 from nnodely.core.layer import Identity, Layer
 from nnodely.layers.partitions import Select
-from conftest import requires_onnx_export, to_numpy
+from conftest import to_numpy
 import json
+import nnodely as nn
 import keras
 import numpy as np
 import pytest
@@ -354,7 +353,6 @@ def _seq_ops_model():
         ),
     ],
 )
-@requires_onnx_export
 def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
     pytest.importorskip("onnxruntime")
     model = model_factory()
@@ -365,7 +363,7 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
     expected = model(inputs)
     model.export_onnx(tmp_path)
     path = tmp_path / f"{model.name}.onnx"
-    actual = Modely.validate_onnx(path, inputs, return_dict=True)
+    actual = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
     assert list(actual) == list(expected)
@@ -378,28 +376,88 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
         )
 
 
-@pytest.mark.skipif(
-    keras.backend.backend() != "jax",
-    reason="the jax backend is the one without an ONNX exporter",
-)
-def test_export_onnx_on_jax_says_it_is_unavailable(tmp_path):
-    # Every other ONNX test is skipped on jax: this is what a jax user sees.
-    model = _single_input_model("onnx_on_jax", lambda stream: Identity()(stream))
+def test_export_onnx_without_the_converter_names_the_backend_extra(
+    tmp_path, monkeypatch
+):
+    # Once refused on jax altogether, and ONNX an extra of its own: every
+    # backend extra brings the converter Keras exports with, and without it
+    # the error says which extra to install.
+    import importlib.util
 
-    with pytest.raises(NotImplementedError, match="not available on the jax backend"):
-        model.export_onnx(tmp_path, "onnx_on_jax")
-    assert not (tmp_path / "onnx_on_jax.onnx").exists()
+    from nnodely.core.export import _CONVERTERS
+
+    backend = keras.backend.backend()
+    converter = _CONVERTERS[backend]
+    find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *args: None if name == converter else find_spec(name, *args),
+    )
+    model = _single_input_model("onnx_converter", lambda stream: Identity()(stream))
+
+    with pytest.raises(ImportError, match=rf"{converter}.*nnodely\[{backend}\]"):
+        model.export_onnx(tmp_path, "onnx_converter")
+    assert not (tmp_path / "onnx_converter.onnx").exists()
 
 
-@requires_onnx_export
-def test_validate_onnx_rejects_missing_input(tmp_path):
+def test_export_onnx_fixes_the_batch_it_is_given(tmp_path):
+    # Once dynamic on tensorflow and fixed to the traced batch of one on torch,
+    # where any other batch failed: one sample by default, batch_size samples
+    # on every backend, and ONNX Runtime refuses another.
+    pytest.importorskip("onnxruntime")
+    model = _single_input_model("onnx_batch", lambda stream: Fir(features=2)(stream))
+    data = _random_inputs(model)
+    one = {name: value[:1] for name, value in data.items()}
+    three = {name: value[:3] for name, value in data.items()}
+
+    model.export_onnx(tmp_path, "one")
+    model.export_onnx(tmp_path, "three", batch_size=3)
+
+    for name, inputs in (("one", one), ("three", three)):
+        actual = Modely.run_onnx(tmp_path / f"{name}.onnx", inputs)[0]
+        expected = to_numpy(model(inputs)["onnx_batch_output"])
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
+    with pytest.raises(Exception, match="dimensions"):
+        Modely.run_onnx(tmp_path / "one.onnx", three)
+    with pytest.raises(Exception, match="dimensions"):
+        Modely.run_onnx(tmp_path / "three.onnx", one)
+    with pytest.raises(ValueError, match="batch_size is a positive int"):
+        model.export_onnx(tmp_path, "wrong", batch_size=0)
+    with pytest.raises(ValueError, match="batch_size is a positive int"):
+        model.export_onnx(tmp_path, "wrong", batch_size=1.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="seq is a positive int"):
+        model.export_onnx(tmp_path, "wrong", seq=0)
+
+
+def test_export_onnx_declares_the_opset_it_is_given(tmp_path):
+    # The default opset differs by exporter (15 for tf2onnx, 20 for torch, 23
+    # for jax2onnx): an older runtime needs a lower one.
+    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    model = _single_input_model("onnx_opset", lambda stream: Fir(features=2)(stream))
+    inputs = {name: value[:1] for name, value in _random_inputs(model).items()}
+
+    model.export_onnx(tmp_path, "opset", opset_version=17)
+
+    opsets = {
+        item.domain: item.version
+        for item in onnx.load(tmp_path / "opset.onnx").opset_import
+    }
+    assert opsets[""] == 17
+    actual = Modely.run_onnx(tmp_path / "opset.onnx", inputs)[0]
+    expected = to_numpy(model(inputs)["onnx_opset_output"])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_run_onnx_rejects_missing_input(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _single_input_model("onnx_missing", lambda stream: Identity()(stream))
     model.export_onnx(tmp_path, "missing")
     path = tmp_path / "missing.onnx"
 
     with pytest.raises(ValueError, match="Missing ONNX inputs"):
-        Modely.validate_onnx(path, {})
+        Modely.run_onnx(path, {})
 
 
 @pytest.mark.parametrize("mode", ["linear", "polynomial"])
@@ -772,7 +830,7 @@ def _unary_arithmetic_model():
         + Asinh(window)
         + Acosh(window + 1.0)
         + Atanh(window * 0.5),
-        "unary_exp_logs": Expm1(window) + Log1p(window) + Log2(window),
+        "unary_exp_logs": Exp(window) - 1.0 + Log(window + 1.0) + Log2(window),
         "unary_square_round": Square(window) + Round(window * 10.0),
         "unary_rad2deg": Rad2Deg(window),
         "unary_reductions": Mean()(window)
@@ -1217,17 +1275,16 @@ _LAYER_SUITE = pytest.mark.parametrize(
     [_loop_final_state_model, _loop_trajectory_model],
     ids=["loop_final_state", "loop_trajectory"],
 )
-@requires_onnx_export
 def test_export_onnx_loop_model(tmp_path, model_factory):
     pytest.importorskip("onnxruntime")
     model = model_factory()
-    # The torch exporter fixes the batch axis to the one it traces with.
+    # The file is exported for one sample.
     inputs = {name: value[:1] for name, value in _random_inputs(model).items()}
 
     expected = model(inputs)
     model.export_onnx(tmp_path)
     path = tmp_path / f"{model.name}.onnx"
-    actual = Modely.validate_onnx(path, inputs, return_dict=True)
+    actual = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
     assert list(actual) == list(expected)
@@ -1240,14 +1297,11 @@ def test_export_onnx_loop_model(tmp_path, model_factory):
         )
 
 
-@pytest.mark.skipif(
-    keras.backend.backend() != "tensorflow",
-    reason="only the tensorflow exporter keeps the rollout axis dynamic",
-)
-@requires_onnx_export
-def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
-    # Exported with an unknown width, the rollout reads its length from the
-    # data instead of the length it was declared with.
+def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
+    # Once exported with a dynamic length, which only tensorflow kept, while
+    # torch baked in the traced one and silently computed wrong at another:
+    # every backend now exports the length seq gives, and ONNX Runtime
+    # refuses another.
     pytest.importorskip("onnxruntime")
     x, u = Input("dyn_onnx_x", dim=1, tw=1), Input("dyn_onnx_u", dim=1, tw=1)
     body_output = Output("dyn_onnx_next", x * 0.5 + u)
@@ -1260,31 +1314,33 @@ def test_export_onnx_dynamic_loop_follows_the_data(tmp_path):
         inputs=[x_seq, u_seq],
         outputs=[Output("dyn_onnx_out", loop)],
     ).build()
-    model.export_onnx(tmp_path)
+    with pytest.raises(ValueError, match="sequence of dynamic length.*seq=n"):
+        model.export_onnx(tmp_path)
+    assert not (tmp_path / f"{model.name}.onnx").exists()
 
-    for steps in (1, 7):
-        inputs = {
+    def inputs(steps):
+        return {
             "dyn_onnx_x_seq": np.ones((1, steps, 1, 1), dtype=np.float32),
             "dyn_onnx_u_seq": np.arange(steps, dtype=np.float32).reshape(
                 1, steps, 1, 1
             ),
         }
-        expected = to_numpy(model(inputs)["dyn_onnx_out"])
-        actual = Modely.validate_onnx(
-            tmp_path / f"{model.name}.onnx", inputs, return_dict=True
+
+    for steps in (1, 7):
+        model.export_onnx(tmp_path, f"dyn_onnx_{steps}", seq=steps)
+        expected = to_numpy(model(inputs(steps))["dyn_onnx_out"])
+        actual = Modely.run_onnx(
+            tmp_path / f"dyn_onnx_{steps}.onnx", inputs(steps), return_dict=True
         )["dyn_onnx_out"]  # type: ignore
         assert expected.shape == (1, steps, 1, 1)
         np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
+    with pytest.raises(Exception, match="dimensions"):
+        Modely.run_onnx(tmp_path / "dyn_onnx_7.onnx", inputs(3))
 
 
-@pytest.mark.skipif(
-    keras.backend.backend() != "tensorflow",
-    reason="only the tensorflow exporter keeps the sequence axis dynamic",
-)
-@requires_onnx_export
-def test_export_onnx_seq_ops_follow_the_data(tmp_path):
-    # Counted from the end, the selected elements are those of the data, not
-    # of the length the graph was declared with.
+def test_export_onnx_seq_ops_take_the_length_they_are_given(tmp_path):
+    # Counted from the end, the selected elements are those of the length
+    # seq gives, not of the length the graph was declared with.
     pytest.importorskip("onnxruntime")
     x = Input("dyn_seq_ops_x", dim=1, seq=-1, tw=1)
     sequence = x
@@ -1302,15 +1358,15 @@ def test_export_onnx_seq_ops_follow_the_data(tmp_path):
             ),
         ],
     ).build()
-    model.export_onnx(tmp_path)
 
     for steps in (2, 6):
+        model.export_onnx(tmp_path, f"dyn_seq_ops_{steps}", seq=steps)
         inputs = {
             "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, steps, 1, 1)
         }
         expected = model(inputs)
-        actual = Modely.validate_onnx(
-            tmp_path / f"{model.name}.onnx", inputs, return_dict=True
+        actual = Modely.run_onnx(
+            tmp_path / f"dyn_seq_ops_{steps}.onnx", inputs, return_dict=True
         )
         for name in expected:
             np.testing.assert_allclose(to_numpy(actual[name]), to_numpy(expected[name]))
@@ -1345,7 +1401,7 @@ def test_loaded_model_rebuilt_with_new_minimizers_keeps_its_weights(
     weight_count = len(loaded._keras_inference_model.weights)
 
     # The user's own minimizers bring new inputs and new graph nodes, so the
-    # model is built again - around the blocks it loaded, not fresh ones.
+    # model is built again, around the blocks it loaded, not fresh ones.
     for output in loaded.outputs:
         loaded.minimize(f"{output.name}_fit", source=output, target=_target_for(output))
     loaded.build()
@@ -1371,7 +1427,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
         epochs=5,
         batch_size=8,
         lr=1e-2,
-        printer=None,
+        verbose=False,
     )
     model.save(tmp_path / "pretrained")
 
@@ -1400,7 +1456,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
         epochs=5,
         batch_size=8,
         lr=1e-2,
-        printer=None,
+        verbose=False,
     )
     tuned = to_numpy(loaded(inputs)["fine_tune_out"])
     assert not np.allclose(tuned, pretrained)
@@ -1417,7 +1473,7 @@ def _minimized_model():
     x = Input("minimized_x", dim=1, tw=3)
     target = Input("minimized_target", dim=1, tw=1)
     prediction = Output("minimized_out", Fir(features=1, name="minimized_fir")(x))
-    model = Modely("minimized", inputs=[x, target], outputs=[prediction])
+    model = Modely("minimized", inputs=[x], outputs=[prediction])
     model.minimize("minimized_fit", source=prediction, target=target)
     # A stream only a minimizer reads, computed by a weight of its own.
     auxiliary = Linear(features=1, name="minimized_auxiliary")(TimeSelect(-1)(x))
@@ -1440,12 +1496,9 @@ def test_save_load_leaves_minimizers_out(tmp_path):
     assert [node.name for node in restored._train_inputs] == ["minimized_x"]
     saved = json.loads((tmp_path / "saved" / "model.json").read_text(encoding="utf-8"))
     saved_names = {node["config"]["name"] for node in saved["nodes"]}
-    # The target is one of the inputs the model is declared with, so it is
-    # saved with it; nothing the model computes reads it.
-    assert [node.name for node in restored._inputs] == [
-        "minimized_x",
-        "minimized_target",
-    ]
+    # The target is read only by a minimizer: it is not saved either.
+    assert [node.name for node in restored._inputs] == ["minimized_x"]
+    assert "minimized_target" not in saved_names
     assert "minimized_auxiliary" not in saved_names
     # The auxiliary layer trains with the model, but is not part of it.
     assert model._keras_model is not None and model._keras_inference_model is not None
@@ -1469,7 +1522,6 @@ def test_export_keras_leaves_minimizers_out(tmp_path):
     )
 
 
-@requires_onnx_export
 def test_export_onnx_leaves_minimizers_out(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _minimized_model()
@@ -1479,8 +1531,8 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
 
     model.export_onnx(tmp_path, "minimized")
     path = tmp_path / "minimized.onnx"
-    # validate_onnx feeds every input of the graph: the target is not one of them.
-    result = Modely.validate_onnx(path, inputs, return_dict=True)
+    # run_onnx feeds every input of the graph: the target is not one of them.
+    result = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert list(result) == ["minimized_out"]
     np.testing.assert_allclose(
@@ -1501,8 +1553,8 @@ def _fir_model(name, gain):
     x = Input(f"{name}_x", tw=2)
     fir = Fir(features=1, bias=False)(x)  # left unnamed
     model = Modely(name, inputs=[x], outputs=[Output(f"{name}_out", fir)]).build()
-    assert fir.kernel is not None
-    fir.kernel.assign(np.full((2, 1), gain, dtype=np.float32))
+    assert fir.weights["kernel"].param is not None
+    fir.weights["kernel"].param.assign(np.full((2, 1), gain, dtype=np.float32))
     return model, fir
 
 
@@ -1517,8 +1569,8 @@ def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
     loaded_fir = next(node for node in loaded._order if isinstance(node, Fir))
     # One name, two layers: a layer is told apart by the object it comes from.
     assert loaded_fir.name == ours.name
-    assert ours.kernel is not None
-    ours.kernel.assign(np.ones((2, 1), dtype=np.float32))
+    assert ours.weights["kernel"].param is not None
+    ours.weights["kernel"].param.assign(np.ones((2, 1), dtype=np.float32))
 
     x = model._inputs[0]
     both = Modely(
@@ -1540,8 +1592,10 @@ def test_a_reloaded_model_stays_apart_from_its_original(tmp_path):
     original, fir = _fir_model("reload", 1.0)
     original.save(tmp_path / "reload")
     copy = Modely.load(tmp_path / "reload")
-    assert fir.kernel is not None
-    fir.kernel.assign(np.full((2, 1), 2.0, dtype=np.float32))  # trained on
+    assert fir.weights["kernel"].param is not None
+    fir.weights["kernel"].param.assign(
+        np.full((2, 1), 2.0, dtype=np.float32)
+    )  # trained on
 
     z = Input("reload_z", tw=2)
     both = Modely(
@@ -1575,8 +1629,8 @@ def test_one_file_loaded_twice_gives_two_models(tmp_path):
     model.save(tmp_path / "twice")
     first, second = Modely.load(tmp_path / "twice"), Modely.load(tmp_path / "twice")
     second_fir = next(node for node in second._order if isinstance(node, Fir))
-    assert second_fir.kernel is not None
-    second_fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))
+    assert second_fir.weights["kernel"].param is not None
+    second_fir.weights["kernel"].param.assign(np.full((2, 1), 5.0, dtype=np.float32))
 
     np.testing.assert_allclose(
         to_numpy(first({"twice_x": _WINDOW_OF_ONES})["twice_out"]), [[[2.0]]]
@@ -1620,10 +1674,10 @@ def test_load_without_weights_initializes_the_saved_architecture(tmp_path):
     restored_fir = next(node for node in restored._order if isinstance(node, Fir))
 
     assert (tmp_path / "fresh" / "model.weights.h5").exists()
-    assert not np.allclose(to_numpy(restored_fir.kernel), 7.0)
+    assert not np.allclose(to_numpy(restored_fir.weights["kernel"].param), 7.0)
     reloaded = Modely.load(tmp_path / "fresh")
     reloaded_fir = next(node for node in reloaded._order if isinstance(node, Fir))
-    np.testing.assert_allclose(to_numpy(reloaded_fir.kernel), 7.0)
+    np.testing.assert_allclose(to_numpy(reloaded_fir.weights["kernel"].param), 7.0)
 
 
 def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
@@ -1655,8 +1709,10 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     model = Modely(
         "architecture", inputs=[x], outputs=[Output("architecture_out", fir * gain)]
     ).build()
-    assert fir.kernel is not None and gain.param is not None
-    fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))  # as if trained
+    assert fir.weights["kernel"].param is not None and gain.param is not None
+    fir.weights["kernel"].param.assign(
+        np.full((2, 1), 5.0, dtype=np.float32)
+    )  # as if trained
     gain.param.assign([7.0])
 
     path = tmp_path / "architecture"
@@ -1672,7 +1728,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     assert isinstance(restored_gain, Parameter) and isinstance(restored_fir, Fir)
     # As declared again: the parameter from its value, the Fir from a new draw.
     np.testing.assert_allclose(to_numpy(restored_gain.param), [2.0])
-    assert not np.allclose(to_numpy(restored_fir.kernel), 5.0)
+    assert not np.allclose(to_numpy(restored_fir.weights["kernel"].param), 5.0)
 
 
 def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
@@ -1691,8 +1747,12 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
     restored = Modely.load(tmp_path / "initializer")
     restored_linear = next(node for node in restored._order if isinstance(node, Linear))
 
-    np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
-    np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["kernel"].param), np.full((1, 2), 0.5)
+    )
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["bias"].param), [-1.0, -1.0]
+    )
 
 
 class _ScaledImpl(keras.layers.Layer):
@@ -1907,21 +1967,6 @@ def test_a_model_called_in_a_loop_body_and_outside_is_one_model_once_loaded(tmp_
     )
 
 
-def test_a_declared_input_nothing_reads_is_saved(tmp_path):
-    # It is part of how the model is called: a list holds a value for it.
-    x, unused = Input("cd_x", tw=3), Input("cd_unused", tw=1)
-    model = Modely(
-        "cd_model", inputs=[x, unused], outputs=[Output("cd_out", Fir(features=1)([x]))]
-    ).build()
-    model.save(tmp_path / "cd_model")
-    loaded = Modely.load(tmp_path / "cd_model")
-    assert [node.name for node in loaded._inputs] == ["cd_x", "cd_unused"]
-    values = [_window(), np.zeros((2, 1, 1), np.float32)]
-    np.testing.assert_allclose(
-        to_numpy(loaded(values)["cd_out"]), to_numpy(model(values)["cd_out"]), rtol=1e-6
-    )
-
-
 # ---------------------------------------------------------------------------
 # Fir and Linear computing with Parameters as kernel and bias
 # ---------------------------------------------------------------------------
@@ -2004,7 +2049,6 @@ def test_fir_and_linear_computing_with_parameters_save_load_and_export(tmp_path)
     )
 
 
-@requires_onnx_export
 def test_fir_and_linear_computing_with_parameters_export_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model, parameters = _parameter_weights_model()
@@ -2012,7 +2056,7 @@ def test_fir_and_linear_computing_with_parameters_export_to_onnx(tmp_path):
     expected = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
 
     model.export_onnx(tmp_path, "weights")
-    result = Modely.validate_onnx(
+    result = Modely.run_onnx(
         tmp_path / "weights.onnx", _WEIGHTS_INPUTS, return_dict=True
     )
 
@@ -2089,7 +2133,6 @@ def test_generalized_fuzzify_saves_loads_and_exports_to_keras(tmp_path):
             )
 
 
-@requires_onnx_export
 def test_generalized_fuzzify_exports_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _generalized_fuzzify_model()
@@ -2099,9 +2142,7 @@ def test_generalized_fuzzify_exports_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "general_fuzzy")
-    result = Modely.validate_onnx(
-        tmp_path / "general_fuzzy.onnx", data, return_dict=True
-    )
+    result = Modely.run_onnx(tmp_path / "general_fuzzy.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _GENERAL_OUTPUTS:
@@ -2216,7 +2257,6 @@ def test_moving_fuzzify_centers_save_load_and_export_to_keras(tmp_path):
 
 
 @pytest.mark.slow
-@requires_onnx_export
 def test_moving_fuzzify_centers_export_to_onnx(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _moving_centers_model()
@@ -2224,7 +2264,7 @@ def test_moving_fuzzify_centers_export_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "moving")
-    result = Modely.validate_onnx(tmp_path / "moving.onnx", data, return_dict=True)
+    result = Modely.run_onnx(tmp_path / "moving.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _MOVING_OUTPUTS:
@@ -2233,7 +2273,6 @@ def test_moving_fuzzify_centers_export_to_onnx(tmp_path):
         )
 
 
-@requires_onnx_export
 def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
     # Once swapped on torch: its exporter drops the names and writes the
     # outputs in the order of their names, which were paired off in the order
@@ -2250,7 +2289,7 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
     ).build()
 
     model.export_onnx(tmp_path, "same_shape")
-    result = Modely.validate_onnx(
+    result = Modely.run_onnx(
         tmp_path / "same_shape.onnx",
         {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
         return_dict=True,
@@ -2261,7 +2300,7 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]).ravel(), [index + 1.0])
 
     # Listed as model.outputs lists them: the exporters sort them by name.
-    listed = Modely.validate_onnx(
+    listed = Modely.run_onnx(
         tmp_path / "same_shape.onnx",
         {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
     )
@@ -2299,8 +2338,8 @@ def test_a_loaded_model_reads_the_window_the_saved_one_read(tmp_path):
 
 
 def test_a_parameter_read_by_several_models_loads_as_one(tmp_path):
-    # Read by a Loop body, by a block and by the outer model, the gain - and
-    # the kernel of the Fir both use - is one object, written in the file of
+    # Read by a Loop body, by a block and by the outer model, the gain (and
+    # the kernel of the Fir both use) is one object, written in the file of
     # each model; it was loaded as one object per file.
     gain = Parameter("one_gain", value=2.0)
     fir = Fir(features=1, bias=False, name="one_fir")
@@ -2485,7 +2524,7 @@ def test_keras_export_of_weights_reached_from_several_graphs(make, tmp_path):
     # "expected 1 variables, but received 0", or a broken graph at the call.
     model, shapes = make()
     rng = np.random.default_rng(0)
-    # Values unlike any initializer - moving statistics included - so a
+    # Values unlike any initializer (moving statistics included), so a
     # weight left at its initial value after the import would show. Constants
     # are left alone: a number's Constant is shared by every model.
     assert model._keras_inference_model is not None
@@ -2588,3 +2627,442 @@ def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
         to_numpy(loaded(data)["rt_sizes_out"]),
         to_numpy(model(data)["rt_sizes_out"]),
     )
+
+
+def test_options_given_as_members_save_as_their_strings(tmp_path):
+    # Every option enum is a StrEnum: a model declared with its members saves
+    # the strings a model declared with the strings saves, and loads back.
+    x, g = nn.Input("opt_x", tw=4), nn.Input("opt_g", tw=1)
+    integral = nn.IntegrateStep(method=nn.IntegrationMethod.TRAPEZOIDAL, dt=0.1)(x)
+    curve = nn.Interpolation(
+        [0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=nn.InterpolationMode.POLYNOMIAL
+    )(g)
+    sets = nn.Fuzzify([0.0, 1.0], function=nn.MembershipName.GAUSSIAN)(g)
+    model = nn.Modely(
+        "options",
+        inputs=[x, g],
+        outputs=[
+            nn.Output("opt_integral", integral),
+            nn.Output("opt_curve", curve),
+            nn.Output("opt_sets", sets),
+        ],
+    ).build()
+    model.save(tmp_path / "options")
+    saved = (tmp_path / "options" / "model.json").read_text()
+    assert '"method": "trapezoidal"' in saved
+    assert '"mode": "polynomial"' in saved
+    for enum in ("IntegrationMethod", "InterpolationMode", "MembershipName"):
+        assert enum not in saved
+
+    data = {
+        "opt_x": np.arange(4.0, dtype=np.float32).reshape(1, 4, 1),
+        "opt_g": np.array([[[1.5]]], dtype=np.float32),
+    }
+    loaded = Modely.load(tmp_path / "options")
+    _assert_same_outputs(
+        {k: to_numpy(v) for k, v in loaded(data).items()},
+        {k: to_numpy(v) for k, v in model(data).items()},
+    )
+
+
+# -----------------------------------------------------------------------------
+# ONNX coverage: one model per block family, exported on the current backend
+# -----------------------------------------------------------------------------
+#
+# Each is exported for 3 samples, its rollouts 4 steps long, and run by ONNX
+# Runtime against the model. The batch of one is every other ONNX test's. A
+# Gradient records the backward pass: torch refuses it, and tensorflow when
+# tf2onnx has no ONNX operator for the gradient of a layer it differentiates.
+
+_COVERAGE_STEPS = 4
+
+
+@keras.saving.register_keras_serializable(package="nnodely_tests")
+class CoverageSquarePlusOne(keras.layers.Layer):
+    def call(self, x):
+        return x * x + 1.0
+
+
+def _cov_single(label, make, x=None):
+    def build():
+        node = x() if x is not None else nn.Input(f"{label}_x", dim=3, tw=2)
+        return nn.Modely(
+            label, inputs=[node], outputs=[nn.Output(f"{label}_y", make(node))]
+        )
+
+    return pytest.param(build, id=label)
+
+
+def _cov_operators():
+    x = nn.Input("cov_ops_x", dim=3, tw=2)
+    p, c = (
+        nn.Parameter("cov_ops_p", dim=3),
+        nn.Constant("cov_ops_c", value=[1.0, 2.0, 3.0]),
+    )
+    a = (x * p + c - x / (c + 1.0)) ** 2.0 % 1.5
+    return nn.Modely(
+        "cov_ops",
+        inputs=[x],
+        outputs=[nn.Output("cov_ops_a", a), nn.Output("cov_ops_b", -x + abs(x - 0.5))],
+    )
+
+
+def _cov_eql_threshold():
+    x = nn.Input("cov_eqlt_x", dim=3, tw=1)
+    learner = nn.EquationLearner(
+        ["sin", "multiply"], linear_out=nn.Linear(features=1), threshold=0.05
+    )
+    return nn.Modely(
+        "cov_eqlt", inputs=[x], outputs=[nn.Output("cov_eqlt_y", learner(x))]
+    )
+
+
+def _cov_local_model():
+    torque, gear = nn.Input("cov_lm_t", tw=4), nn.Input("cov_lm_g", tw=1)
+    gears = nn.Fuzzify([0.0, 0.5, 1.0], function=nn.Triangular)(gear)
+    out = nn.LocalModel(lambda cell: nn.Fir())(torque, gears)
+    return nn.Modely(
+        "cov_lm", inputs=[torque, gear], outputs=[nn.Output("cov_lm_y", out)]
+    )
+
+
+def _cov_ode_step():
+    th, om = nn.Input("cov_ode_th", tw=1), nn.Input("cov_ode_om", tw=1)
+    g = nn.Parameter("cov_ode_g", value=5.0)
+    th1, om1 = nn.Ode(lambda a, b: (b, -g * nn.Sin(a)), [th, om], dt=0.05)
+    return nn.Modely(
+        "cov_ode",
+        inputs=[th, om],
+        outputs=[nn.Output("cov_ode_th1", th1), nn.Output("cov_ode_om1", om1)],
+    )
+
+
+def _cov_gradient(kind):
+    def build():
+        t = nn.Input(f"cov_grad_{kind}_t")
+        hidden = nn.Linear(features=8)(t)
+        if kind == "order2":
+            u = nn.Sin(nn.Linear(features=1)(t))
+            return nn.Modely(
+                "cov_grad_order2",
+                inputs=[t],
+                outputs=[
+                    nn.Output("cov_grad_order2_d2", nn.Gradient(order=2, wrt=t)(u))
+                ],
+            )
+        activation = nn.Tanh if kind == "tanh" else nn.Sin
+        u = nn.Linear(features=1)(activation(hidden))
+        return nn.Modely(
+            f"cov_grad_{kind}",
+            inputs=[t],
+            outputs=[
+                nn.Output(f"cov_grad_{kind}_u", u),
+                nn.Output(f"cov_grad_{kind}_du", nn.Gradient(wrt=t)(u)),
+            ],
+        )
+
+    return pytest.param(build, id=f"gradient_{kind}")
+
+
+def _cov_loop(kind):
+    def build():
+        s, u = nn.Input(f"cov_{kind}_s", tw=1), nn.Input(f"cov_{kind}_u", tw=1)
+        body = nn.Modely(
+            f"cov_{kind}_body",
+            inputs=[s, u],
+            outputs=[
+                nn.Output(f"cov_{kind}_next", 0.9 * s + nn.Linear(features=1)(u)),
+                nn.Output(f"cov_{kind}_obs", s * 2.0),
+            ],
+        ).build()
+        seq = -1 if kind == "loop_dynamic" else _COVERAGE_STEPS
+        s0 = nn.Input(f"cov_{kind}_s0", seq=seq, tw=1)
+        us = nn.Input(f"cov_{kind}_us", seq=seq, tw=1)
+        a, b = nn.Loop(
+            f=body,
+            feedback={s: f"cov_{kind}_next"},
+            init={s: s0},
+            collect=kind != "loop_last",
+        )({u: us})
+        return nn.Modely(
+            f"cov_{kind}",
+            inputs=[s0, us],
+            outputs=[nn.Output(f"cov_{kind}_a", a), nn.Output(f"cov_{kind}_b", b)],
+        )
+
+    return pytest.param(build, id=kind)
+
+
+def _cov_ode_loop():
+    th, om = nn.Input("cov_ol_th", tw=1), nn.Input("cov_ol_om", tw=1)
+    th1, om1 = nn.Ode(lambda a, b: (b, -5.0 * nn.Sin(a)), [th, om], dt=0.05)
+    step = nn.Modely(
+        "cov_ol_step",
+        inputs=[th, om],
+        outputs=[nn.Output("cov_ol_th1", th1), nn.Output("cov_ol_om1", om1)],
+    ).build()
+    t0 = nn.Input("cov_ol_t0", seq=_COVERAGE_STEPS, tw=1)
+    o0 = nn.Input("cov_ol_o0", seq=_COVERAGE_STEPS, tw=1)
+    a, b = nn.Loop(
+        f=step,
+        feedback={"cov_ol_th": "cov_ol_th1", "cov_ol_om": "cov_ol_om1"},
+        init={"cov_ol_th": t0, "cov_ol_om": o0},
+    )()
+    return nn.Modely(
+        "cov_ol",
+        inputs=[t0, o0],
+        outputs=[nn.Output("cov_ol_a", a), nn.Output("cov_ol_b", b)],
+    )
+
+
+def _cov_rollout():
+    acc, pos, vel = (nn.Input(f"cov_ml_{name}", tw=1) for name in ("acc", "pos", "vel"))
+    vel_next = vel.feedback(nn.IntegrateStep(dt=0.1)(vel, acc))
+    pos_next = pos.feedback(nn.IntegrateStep(dt=0.1)(pos, vel_next))
+    return nn.Modely(
+        "cov_ml",
+        inputs=[acc, pos, vel],
+        outputs=[nn.Output("cov_ml_p", pos_next), nn.Output("cov_ml_v", vel_next)],
+    ).loop()
+
+
+def _cov_rollout_layer_states():
+    acc = nn.Input("cov_mls_acc", tw=1)
+    v = nn.Integrate(dt=0.1, method="trapezoidal")(acc)
+    d = nn.Derivative(dt=0.1)(acc)
+    f = nn.Fir()(nn.Buffer(tw=3)(acc))
+    outputs = [
+        nn.Output("cov_mls_v", v),
+        nn.Output("cov_mls_d", d),
+        nn.Output("cov_mls_f", f),
+    ]
+    return nn.Modely("cov_mls", inputs=[acc], outputs=outputs).loop()
+
+
+def _cov_block_called_twice():
+    x = nn.Input("cov_bc_x", tw=3)
+    block = nn.Modely(
+        "cov_bc_block", inputs=[x], outputs=[nn.Output("cov_bc_f", nn.Fir()(x))]
+    )
+    y = nn.Input("cov_bc_y", tw=3)
+    out = nn.Linear(features=2)(block(y)) + block(y * 2.0)
+    return nn.Modely("cov_bc", inputs=[y], outputs=[nn.Output("cov_bc_out", out)])
+
+
+_ELEMENTWISE = {
+    "sin": nn.Sin,
+    "cos": nn.Cos,
+    "tan": nn.Tan,
+    "asin": lambda x: nn.Asin(x * 0.5),
+    "acos": lambda x: nn.Acos(x * 0.5),
+    "atan": nn.Atan,
+    "sinh": nn.Sinh,
+    "cosh": nn.Cosh,
+    "asinh": nn.Asinh,
+    "acosh": lambda x: nn.Acosh(x + 1.5),
+    "atanh": lambda x: nn.Atanh(x * 0.5),
+    "exp": nn.Exp,
+    "log": nn.Log,
+    "log10": nn.Log10,
+    "log2": nn.Log2,
+    "sqrt": nn.Sqrt,
+    "square": nn.Square,
+    "floor": nn.Floor,
+    "ceil": nn.Ceil,
+    "round": nn.Round,
+    "sign": lambda x: nn.Sign(x - 0.5),
+    "deg2rad": nn.Deg2Rad,
+    "rad2deg": nn.Rad2Deg,
+    "negative": nn.Negative,
+    "clamp": lambda x: nn.Clamp(min=0.3, max=0.7)(x),
+    "maximum": lambda x: nn.Maximum([x, x * 0.0 + 0.5]),
+    "minimum": lambda x: nn.Minimum([x, x * 0.0 + 0.5]),
+    "atan2": lambda x: nn.Atan2([x, x + 1.0]),
+    "relu": lambda x: nn.ReLU()(x - 0.5),
+    "leaky_relu": lambda x: nn.LeakyReLU()(x - 0.5),
+    "elu": lambda x: nn.ELU()(x - 0.5),
+    "gelu": lambda x: nn.GELU()(x),
+    "sigmoid": nn.Sigmoid,
+    "tanh": nn.Tanh,
+    "softplus": lambda x: nn.Softplus()(x),
+    "swish": nn.Swish,
+    "softmax": lambda x: nn.Softmax()(x),
+    "softmax_last": lambda x: nn.Softmax(axis=-1)(x),
+}
+
+_ONNX_COVERAGE = [
+    # Weights.
+    _cov_single("cov_linear", lambda x: nn.Linear(features=2)(x)),
+    _cov_single(
+        "cov_linear_axis",
+        lambda x: nn.Linear(features=4, axis=1)(x),
+        lambda: nn.Input("cov_linear_axis_x", dim=(2, 3), tw=1),
+    ),
+    _cov_single(
+        "cov_fir",
+        lambda x: nn.Fir(features=2)(x),
+        lambda: nn.Input("cov_fir_x", dim=2, tw=4),
+    ),
+    _cov_single(
+        "cov_fir_shared",
+        lambda x: nn.Fir(shared_kernel=True)(x),
+        lambda: nn.Input("cov_fir_shared_x", dim=2, tw=4),
+    ),
+    _cov_single("cov_batchnorm", lambda x: nn.BatchNorm()(x)),
+    _cov_single("cov_prelu", lambda x: nn.PReLU()(x - 0.5)),
+    _cov_single(
+        "cov_keras_function", lambda x: nn.KerasFunction(CoverageSquarePlusOne)(x)
+    ),
+    _cov_single(
+        "cov_eql",
+        lambda x: nn.EquationLearner(
+            ["sin", "multiply", "exp"], linear_out=nn.Linear(features=1)
+        )(x),
+    ),
+    pytest.param(_cov_eql_threshold, id="cov_eql_threshold"),
+    # Values, operators and elementwise functions.
+    pytest.param(_cov_operators, id="cov_operators"),
+    *(_cov_single(f"cov_{name}", make) for name, make in _ELEMENTWISE.items()),
+    # Reductions.
+    _cov_single("cov_sum", lambda x: nn.Sum()(x)),
+    _cov_single("cov_mean", lambda x: nn.Mean()(x)),
+    _cov_single("cov_max", lambda x: nn.Max()(x)),
+    _cov_single("cov_min", lambda x: nn.Min()(x)),
+    _cov_single("cov_norm", lambda x: nn.Norm()(x)),
+    _cov_single("cov_cross", lambda x: nn.Cross()([x, x * 2.0 + 1.0])),
+    # Selecting and joining.
+    _cov_single("cov_select", lambda x: Select(0)(x)),
+    _cov_single("cov_range", lambda x: nn.Range(0, 2)(x)),
+    _cov_single("cov_concatenate", lambda x: nn.Concatenate()([x, x])),
+    _cov_single("cov_time_select", lambda x: nn.TimeSelect(-1)(x)),
+    _cov_single(
+        "cov_time_select_flat", lambda x: x - nn.TimeSelect(0, keep_tw=False)(x)
+    ),
+    _cov_single("cov_time_range", lambda x: nn.TimeRange(0, 1)(x)),
+    _cov_single("cov_time_concatenate", lambda x: nn.TimeConcatenate()([x, x])),
+    _cov_single("cov_time_reverse", lambda x: nn.TimeReverse(x)),
+    *(
+        _cov_single(
+            f"cov_{name}",
+            make,
+            lambda name=name: nn.Input(f"cov_{name}_x", seq=4, tw=1),
+        )
+        for name, make in {
+            "seq_select": lambda s: nn.SeqSelect(-1)(s),
+            "seq_range": lambda s: nn.SeqRange(1, 3)(s),
+            "seq_concatenate": lambda s: nn.SeqConcatenate()([s, s]),
+            "seq_stack": lambda s: nn.SeqStack()([s, s]),
+            "seq_reverse": lambda s: nn.SeqReverse()(s),
+        }.items()
+    ),
+    # Fuzzy and lookup.
+    *(
+        _cov_single(
+            f"cov_{name}", make, lambda name=name: nn.Input(f"cov_{name}_g", tw=1)
+        )
+        for name, make in {
+            "fuzzify_triangular": lambda g: nn.Fuzzify(
+                [0.0, 0.5, 1.0], function=nn.Triangular
+            )(g),
+            "fuzzify_gaussian": lambda g: nn.Fuzzify(
+                [0.0, 0.5, 1.0], function=nn.Gaussian, normalize=True
+            )(g),
+            "fuzzify_rectangular": lambda g: nn.Fuzzify(
+                [0.0, 0.5, 1.0], function=nn.Rectangular, bounds=True
+            )(g),
+            "fuzzify_moving": lambda g: nn.Fuzzify(
+                nn.Parameter("cov_fuzzify_moving_c", value=[0.0, 0.5, 1.0]),
+                function=nn.Triangular,
+            )(g),
+            "interpolation_linear": lambda g: nn.Interpolation(
+                [0.0, 0.5, 1.0], [0.0, 2.0, 1.0]
+            )(g),
+            "interpolation_polynomial": lambda g: nn.Interpolation(
+                [0.0, 0.5, 1.0], [0.0, 2.0, 1.0], mode="polynomial"
+            )(g),
+        }.items()
+    ),
+    pytest.param(_cov_local_model, id="cov_local_model"),
+    # Calculus.
+    *(
+        _cov_single(
+            f"cov_{name}", make, lambda name=name: nn.Input(f"cov_{name}_x", tw=5)
+        )
+        for name, make in {
+            "derivative_step": lambda x: nn.DerivativeStep(dt=0.1)(0.0, x),
+            "derivative_step_order2": lambda x: nn.DerivativeStep(dt=0.1, poly_order=2)(
+                x
+            ),
+            "integrate_step": lambda x: nn.IntegrateStep(dt=0.1)(1.0, x),
+            "integrate_step_trapezoidal": lambda x: nn.IntegrateStep(
+                method="trapezoidal", dt=0.1
+            )(0.0, 0.0, x),
+        }.items()
+    ),
+    pytest.param(_cov_ode_step, id="cov_ode_rk4_step"),
+    _cov_gradient("sin"),
+    _cov_gradient("tanh"),
+    _cov_gradient("order2"),
+    # Recurrence.
+    _cov_loop("loop_fixed"),
+    _cov_loop("loop_last"),
+    _cov_loop("loop_dynamic"),
+    pytest.param(_cov_ode_loop, id="cov_ode_in_loop"),
+    pytest.param(_cov_rollout, id="cov_rollout"),
+    pytest.param(
+        _cov_rollout_layer_states, id="cov_rollout_integrate_derivative_buffer"
+    ),
+    pytest.param(_cov_block_called_twice, id="cov_block_called_twice"),
+]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("build", _ONNX_COVERAGE)
+def test_every_block_family_exports_to_onnx_on_this_backend(tmp_path, build, request):
+    pytest.importorskip("onnxruntime")
+    case = request.node.callspec.id
+    model = build()
+    if not model.built:
+        model.build()
+    backend = keras.backend.backend()
+    if case.startswith("gradient") and backend == "torch":
+        with pytest.raises(NotImplementedError, match="'torch' backend"):
+            model.export_onnx(tmp_path, batch_size=3)
+        return
+    if case == "gradient_tanh" and backend == "tensorflow":
+        with pytest.raises(NotImplementedError, match=r"\['TanhGrad'\]"):
+            model.export_onnx(tmp_path, batch_size=3)
+        assert not (tmp_path / f"{model.name}.onnx").exists()
+        return
+
+    dynamic = any(
+        axis is None
+        for tensor in model._keras_inference_model.inputs
+        for axis in tensor.shape[1:]
+    )
+    model.export_onnx(tmp_path, batch_size=3, seq=_COVERAGE_STEPS if dynamic else None)
+    rng = np.random.default_rng(0)
+    data = {
+        tensor.name: rng.uniform(
+            0.1,
+            0.9,
+            (
+                3,
+                *(
+                    _COVERAGE_STEPS if axis is None else axis
+                    for axis in tensor.shape[1:]
+                ),
+            ),
+        ).astype(np.float32)
+        for tensor in model._keras_inference_model.inputs
+    }
+    actual = Modely.run_onnx(tmp_path / f"{model.name}.onnx", data, return_dict=True)
+    expected = model(data)
+    assert list(actual) == list(expected)
+    for name in expected:
+        np.testing.assert_allclose(
+            actual[name],
+            to_numpy(expected[name]),
+            rtol=1e-4,
+            atol=1e-4,  # type: ignore[index]
+        )

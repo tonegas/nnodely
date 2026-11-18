@@ -1,32 +1,13 @@
-"""Calculus with respect to time: the integral and the derivative of a Stream.
-
-They are configured first and then called on the Stream, like every other
-layer::
-
-    IntegrateStep(dt=0.1)(rate)                 # integral of rate   over its window
-    Integrate(dt=0.1)(rate)                     # integral of rate   step by step
-    DerivativeStep(dt=0.1)(fun)                 # d fun / d t        over its window
-    Derivative(dt=0.1)(fun)                     # d fun / d t        step by step
-
-Each integral is the inverse of the derivative beside it. ``IntegrateStep``
-integrates along the rate's own window and keeps its length: the rate sample
-of an interval integrates into the value at the end of that interval, and
-``init`` is the value the signal had just before the window.
-``DerivativeStep`` is a causal finite difference along ``fun``'s own window
-that keeps its length: one derivative per sample, the oldest one reading the
-``init`` condition. ``Integrate`` and ``Derivative`` are the same rules across
-the steps of a ModelyLoop. The derivative with respect to an Input is
-:class:`~nnodely.layers.gradient.Gradient`.
-"""
-
 from __future__ import annotations
+
+from enum import StrEnum
 
 import keras
 import numpy as np
 
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.input import (
     Input,
     _check_history,
@@ -38,31 +19,64 @@ from nnodely.layers.input import (
 # ======================================================================
 # Integration
 # ======================================================================
-#: Quadrature rules, by the name the model writes. "euler" is the same
-#: rectangular rule under the name it has when the window is one sample and
-#: the layer is one step of a recurrence, as in ``Ode``.
+class IntegrationMethod(StrEnum):
+    """The integration rule of :class:`IntegrateStep` and :class:`Integrate`.
+
+    A member is also the string of its value: ``IntegrationMethod.TRAPEZOIDAL``
+    and ``"trapezoidal"`` are the same ``method``.
+
+    Attributes
+    ----------
+    EULER
+        ``"euler"``: the rectangular rule, ``y[i] = y[i-1] + dt * r[i]``,
+        under the name it has as one step of a recurrence, as in :func:`Ode`.
+    RECTANGULAR
+        ``"rectangular"``: the same rule as ``EULER``.
+    TRAPEZOIDAL
+        ``"trapezoidal"``: the trapezoidal rule,
+        ``y[i] = y[i-1] + dt / 2 * (r[i-1] + r[i])``.
+
+    See Also
+    --------
+    IntegrateStep : The running integral of a window.
+    Integrate : The integral one step at a time.
+    OdeMethod : The methods of :func:`Ode`.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import IntegrateStep, IntegrationMethod
+    >>> IntegrationMethod.TRAPEZOIDAL == "trapezoidal"
+    True
+    >>> [method.value for method in IntegrationMethod]
+    ['euler', 'rectangular', 'trapezoidal']
+    >>> trapezoid = IntegrateStep(method=IntegrationMethod.TRAPEZOIDAL, dt=0.1)
+
+    .. versionadded:: 2.0
+    """
+
+    EULER = "euler"
+    RECTANGULAR = "rectangular"
+    TRAPEZOIDAL = "trapezoidal"
+
+
+#: The quadrature rule of each method: "euler" is the rectangular rule.
 _METHOD_RULE = {
-    "euler": "rectangular",
-    "rectangular": "rectangular",
-    "trapezoidal": "trapezoidal",
+    IntegrationMethod.EULER: IntegrationMethod.RECTANGULAR,
+    IntegrationMethod.RECTANGULAR: IntegrationMethod.RECTANGULAR,
+    IntegrationMethod.TRAPEZOIDAL: IntegrationMethod.TRAPEZOIDAL,
 }
 
 #: What a layer of each rule is called on before the rate: the value of the
 #: integral before the window, and the rate before it, which the trapezoid
 #: averages with the first one.
 _HISTORY = {
-    "rectangular": ("init",),
-    "trapezoidal": ("init", "init_rate"),
+    IntegrationMethod.RECTANGULAR: ("init",),
+    IntegrationMethod.TRAPEZOIDAL: ("init", "init_rate"),
 }
 
 
 def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
-    """The time step, always given explicitly."""
-    if dt is None:
-        raise ValueError(
-            f"{owner}: dt is required. Pass the time step of the signal, for "
-            f"example {owner}(dt=0.01)."
-        )
+    """The time step, a positive number."""
     if isinstance(dt, bool) or not isinstance(dt, (int, float)):
         raise TypeError(f"{owner}: dt must be a number, got {type(dt).__name__}.")
     if dt <= 0:
@@ -70,23 +84,26 @@ def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
     return float(dt)
 
 
-def _validate_method(method, owner: str) -> str:
+def _validate_method(method, owner: str) -> IntegrationMethod:
+    """``method``, a member or its string, as the member."""
     if isinstance(method, Stream):
         raise TypeError(
             f"{owner} is configured first and called on the rate, like every "
             f"other layer: {owner}(method=..., dt=...)(rate)."
         )
-    if method not in _METHOD_RULE:
+    try:
+        return IntegrationMethod(method)
+    except ValueError:
+        names = sorted(member.value for member in IntegrationMethod)
         raise ValueError(
-            f"{owner}: method must be one of {sorted(_METHOD_RULE)}, got {method!r}."
-        )
-    return method
+            f"{owner}: method must be one of {names}, got {method!r}."
+        ) from None
 
 
 def _history_and_signal(owner: str, inputs, history: tuple[str, ...]) -> list:
     """The predecessors of a layer called as ``layer(signal)`` or
-    ``layer(*history, signal)``: the signal, then what it starts from - up to
-    the ``history`` it reads, in that order - a number made a Constant."""
+    ``layer(*history, signal)``: the signal, then what it starts from, up to
+    the ``history`` it reads, in that order. A number is made a Constant."""
     if len(inputs) == 1 and isinstance(inputs[0], (list, tuple)):
         inputs = tuple(inputs[0])
     if not 1 <= len(inputs) <= len(history) + 1:
@@ -110,9 +127,9 @@ def _quadrature_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
 
     Row ``interval`` of the increments holds the weight each rate sample has in
     the step across that interval; summing the increments up to ``i`` gives the
-    value at sample ``i``, so the running integral is a single matmul - the
-    same shape of operation as the derivative's banded stencil, and one the
-    exporters convert without a scan.
+    value at sample ``i``, so the running integral is a single matmul. That
+    is the same shape of operation as the derivative's banded stencil, and
+    one the exporters convert without a scan.
 
     Sample ``i`` of the rate is the rate *of the interval ending at* ``i``,
     which is the interval a backward difference produced it from. The
@@ -122,7 +139,7 @@ def _quadrature_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
     """
     increments = np.zeros((window_length, window_length), dtype=np.float64)
     for interval in range(window_length):
-        if rule == "trapezoidal":
+        if rule == IntegrationMethod.TRAPEZOIDAL:
             increments[interval, interval] += dt / 2.0
             if interval > 0:
                 increments[interval, interval - 1] += dt / 2.0
@@ -217,14 +234,15 @@ class IntegrateStep(Layer):
     window, it gives the whole integrated trajectory in one pass, with no
     rollout.
 
-    For one rate sample per step of a :class:`ModelyLoop` or a :class:`Loop`
-    body, use :class:`Integrate`, which keeps the integral from one step to
-    the next.
+    For one rate sample per step of a rollout, :meth:`Modely.loop`, or a
+    :class:`Loop` body, use :class:`Integrate`, which keeps the integral from
+    one step to the next.
 
     Parameters
     ----------
-    method : str, default "euler"
-        The integration rule:
+    method : IntegrationMethod or str, default IntegrationMethod.EULER
+        The integration rule, a member of :class:`IntegrationMethod` or its
+        string:
 
         * ``"euler"``: the rectangle of each sample, its rate times ``dt``.
         * ``"rectangular"``: the same rule as ``"euler"``.
@@ -232,10 +250,10 @@ class IntegrateStep(Layer):
           before it.
 
         Only ``"euler"`` is also a method of :func:`Ode`, with the same rule.
-    dt : float
-        The time between two samples, a positive number. It is required:
-        nothing infers it from the data. The integral is in the unit of
-        ``rate`` times the unit of ``dt``.
+    dt : float, default 1.0
+        The time between two samples, a positive number. Nothing infers it
+        from the data. The integral is in the unit of ``rate`` times the unit
+        of ``dt``.
     name : str, optional
         The name of the layer. The default is ``IntegrateStep`` followed by a
         number.
@@ -266,8 +284,7 @@ class IntegrateStep(Layer):
     ------
     ValueError
         If ``method`` is not one of the three ("method must be one of"), if
-        ``dt`` is missing or not positive ("dt is required", "dt must be
-        positive"), if ``rate`` has no window ("acts on the window of its
+        ``dt`` is not positive ("dt must be positive"), if ``rate`` has no window ("acts on the window of its
         stream"), or if ``init`` or ``init_rate`` is not one sample of the
         features and sequence of ``rate`` ("init holds the samples before
         the first").
@@ -433,13 +450,13 @@ class IntegrateStep(Layer):
 
     def __init__(
         self,
-        method: str = "euler",
-        dt: float | None = None,
-        name=None,
+        method: IntegrationMethod | str = IntegrationMethod.EULER,
+        dt: float = 1.0,
+        name: str | None = None,
     ):
         self._method = _validate_method(method, "IntegrateStep")
         self._dt = _validate_dt(dt)
-        super().__init__(name=name, method=self._method, dt=self._dt)
+        super().__init__(name=name, method=self._method.value, dt=self._dt)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
@@ -474,7 +491,7 @@ class IntegrateStep(Layer):
     def build_layer(self):
         return IntegrateImpl(
             dt=self._dt,
-            rule=_METHOD_RULE[self._method],
+            rule=_METHOD_RULE[self._method].value,
             axis=self.shape.tw_axis,
             name=self.name,
         )
@@ -491,7 +508,7 @@ class IntegrateStep(Layer):
 
 
 class Integrate:
-    r"""Integral of a rate one step at a time, in a ModelyLoop or a Loop body.
+    r"""Integral of a rate one step at a time, in a rollout or a Loop body.
 
     Syntax
     ------
@@ -503,8 +520,8 @@ class Integrate:
         The trapezoidal rule, with ``r0`` the rate before the first step.
 
     The rate is one sample per step, ``T=1``. The integral is a state: an
-    Input named ``<name>_<rate>``, fed back with the result. The
-    :class:`ModelyLoop`, or the :class:`Loop` whose body holds the layer,
+    Input named ``<name>_<rate>``, fed back with the result. The rollout of
+    :meth:`Modely.loop`, or the :class:`Loop` whose body holds the layer,
     feeds it back with its other states, in one rollout. The trapezoidal rule
     also keeps the rate of the previous step, in the state
     ``<name>_<rate>_rate``. These states are not your Inputs:
@@ -519,10 +536,11 @@ class Integrate:
 
     Parameters
     ----------
-    dt : float
-        The time between two steps, a positive number. It is required.
-    method : str, default "euler"
-        The integration rule, as in :class:`IntegrateStep`:
+    dt : float, default 1.0
+        The time between two steps, a positive number.
+    method : IntegrationMethod or str, default IntegrationMethod.EULER
+        The integration rule, a member of :class:`IntegrationMethod` or its
+        string, as in :class:`IntegrateStep`:
 
         * ``"euler"`` or ``"rectangular"``: the rectangle of each step.
         * ``"trapezoidal"``: the trapezoid between each step and the one
@@ -555,13 +573,13 @@ class Integrate:
     Stream
         The shape of ``rate``, ``Shape(S, 1, D)``: the integral at the end of
         this step. For example, ``Input("a", tw=1)`` gives
-        ``Shape(S=(), T=1, D=(1,))``. As an output of a ModelyLoop it is a
+        ``Shape(S=(), T=1, D=(1,))``. As an output of a rollout it is a
         trajectory, one value per step.
 
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive, if ``method`` is not one of the
+        If ``dt`` is not positive, if ``method`` is not one of the
         three ("method must be one of"), if ``init_rate`` is given to another
         method than ``"trapezoidal"``, if ``rate`` has no window ("acts on the
         window of its stream") or more than one sample ("takes one rate sample
@@ -575,7 +593,7 @@ class Integrate:
     --------
     IntegrateStep : The same integral along a window.
     Derivative : The derivative one step at a time, its inverse.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     Loop : The rollout of a one-step model.
     Ode : One step of an ODE, with Runge-Kutta methods.
 
@@ -597,10 +615,10 @@ class Integrate:
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Integrate, IntegrateStep, Loop, Modely, ModelyLoop, Output
+    >>> from nnodely import Input, Integrate, IntegrateStep, Loop, Modely, Output
     >>> a = Input("a", tw=1)
     >>> v = Integrate(dt=0.5, name="v")(a)
-    >>> model = ModelyLoop("velocity", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> model = Modely("velocity", inputs=[a], outputs=[Output("v", v)]).loop().build()
     >>> steps = np.array([2.0, 4.0, 6.0, 8.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
     array([ 1.,  3.,  6., 10.], dtype=float32)
@@ -616,7 +634,7 @@ class Integrate:
 
     >>> v0 = Input("v0", tw=1)
     >>> v = Integrate(dt=0.5, init=v0)(a)
-    >>> model = ModelyLoop("from_v0", inputs=[a, v0], outputs=[Output("v", v)]).build()
+    >>> model = Modely("from_v0", inputs=[a, v0], outputs=[Output("v", v)]).loop().build()
     >>> start = np.array([1.0, 9.0, 9.0, 9.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"a": steps, "v0": start})["v"]).ravel()
     array([ 2.,  4.,  7., 11.], dtype=float32)
@@ -626,7 +644,7 @@ class Integrate:
     :math:`1 + 0.25 \cdot (2 + 2)`:
 
     >>> v = Integrate(dt=0.5, method="trapezoidal", init=1.0, init_rate=2.0)(a)
-    >>> model = ModelyLoop("trapezoid", inputs=[a], outputs=[Output("v", v)]).build()
+    >>> model = Modely("trapezoid", inputs=[a], outputs=[Output("v", v)]).loop().build()
     >>> keras.ops.convert_to_numpy(model({"a": steps})["v"]).ravel()
     array([2. , 3.5, 6. , 9.5], dtype=float32)
 
@@ -693,32 +711,35 @@ class Integrate:
 
     def __init__(
         self,
-        dt: float,
-        method: str = "euler",
+        dt: float = 1.0,
+        method: IntegrationMethod | str = IntegrationMethod.EULER,
         init: Stream | float | None = None,
         init_rate: Stream | float | None = None,
         name: str | None = None,
     ):
-        from nnodely.core.dag import next_name
+        from nnodely.core.dag import _next_name
 
         self._dt = _validate_dt(dt, "Integrate")
         self._method = _validate_method(method, "Integrate")
         self._init = _validate_init("Integrate", init)
-        if init_rate is not None and _METHOD_RULE[method] != "trapezoidal":
+        if (
+            init_rate is not None
+            and _METHOD_RULE[self._method] != IntegrationMethod.TRAPEZOIDAL
+        ):
             raise ValueError(
                 "Integrate: init_rate is the rate before the first step, which "
-                f"only the trapezoidal method reads, not {method!r}."
+                f"only the trapezoidal method reads, not {self._method.value!r}."
             )
         self._init_rate = _validate_init("Integrate", init_rate, "init_rate")
-        self.name = next_name("Integrate") if name is None else name
+        self.name = _next_name("Integrate") if name is None else name
         self._calls = 0
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             dt=self._dt,
-            method=self._method,
+            method=self._method.value,
             init=self._init,
             init_rate=self._init_rate,
         )
@@ -763,7 +784,7 @@ class Integrate:
         # feedback would read it from.
         integral = hidden(f"{call_name}_{rate.name}")
         history = [integral]
-        if _METHOD_RULE[self._method] == "trapezoidal":
+        if _METHOD_RULE[self._method] == IntegrationMethod.TRAPEZOIDAL:
             previous = hidden(f"{call_name}_{rate.name}_rate")
             previous._feed_back(rate, init=self._init_rate)
             history.append(previous)
@@ -783,7 +804,7 @@ def _stencil_coefficients(poly_order: int, dt: float) -> np.ndarray:
     """Weights of the backward difference of order ``poly_order``.
 
     They give the slope, at the newest sample, of the polynomial of degree
-    ``poly_order`` through the ``poly_order + 1`` newest samples - the
+    ``poly_order`` through the ``poly_order + 1`` newest samples. This is the
     backward differentiation formula: ``(-1, 1)/dt`` for 1, ``(1, -4, 3)/(2
     dt)`` for 2, ``(-2, 9, -18, 11)/(6 dt)`` for 3, each exact on a polynomial
     of its degree. The weights are ordered oldest -> newest, as the samples of
@@ -799,8 +820,8 @@ def _stencil_coefficients(poly_order: int, dt: float) -> np.ndarray:
 def _difference_matrix(coefficients, window_length: int) -> np.ndarray:
     """The stencil as the matrix that applies it to a whole window at once.
 
-    Sliding the stencil over a window is a banded matrix product - the
-    discrete differentiation operator of the window - so the layer runs as a
+    Sliding the stencil over a window is a banded matrix product, the
+    discrete differentiation operator of the window. So the layer runs as a
     single matmul rather than a scan, and differentiates (and exports) like
     any other linear operation.
     """
@@ -868,7 +889,7 @@ class TimeDerivativeImpl(keras.layers.Layer):
 
         # One sample of zeros shaped like the window's first: it both stands
         # in for a missing initial condition and gives a given one the axes it
-        # may be broadcasting over - a scalar initial condition carries no dim
+        # may be broadcasting over: a scalar initial condition carries no dim
         # size, and one may leave out the sequence axes.
         reference = keras.ops.zeros_like(slice_axis(x, tw_axis, slice(0, 1)))
         if init is None:
@@ -917,9 +938,9 @@ class _FiniteDifference(Layer):
 
     def __init__(
         self,
-        dt: float | None = None,
+        dt: float = 1.0,
         poly_order: int = 1,
-        name=None,
+        name: str | None = None,
         **properties,
     ):
         layer = type(self).__name__
@@ -943,7 +964,7 @@ class _FiniteDifference(Layer):
     # Symbolic graph logic
     # ------------------------------------------------------------------
     @property
-    def past(self) -> int:
+    def _past(self) -> int:
         """Samples of history the stencil needs before the first one."""
         return self._poly_order
 
@@ -959,17 +980,6 @@ class _FiniteDifference(Layer):
                 f"{self.name}: {type(self).__name__} expects a Stream input, got "
                 f"{type(function).__name__}."
             )
-
-    # ------------------------------------------------------------------
-    # Keras layer logic
-    # ------------------------------------------------------------------
-    def call(self, xs):
-        signature = self.input_signature(xs)
-        stale = self._layer_signature is not None and self._layer_signature != signature
-        if self._layer is None or stale:
-            self._layer = self.build_layer()
-        self._layer_signature = signature
-        return self._layer(xs if len(xs) > 1 else xs[0])
 
     # ------------------------------------------------------------------
     # Serialization
@@ -1003,16 +1013,16 @@ class DerivativeStep(_FiniteDifference):
     keeps its length, so the result stays aligned with ``x``. The first
     samples of the window read ``init`` in place of the samples before it.
 
-    For one sample per step of a :class:`ModelyLoop` or a :class:`Loop`
-    body, use :class:`Derivative`. For the derivative with respect to an
-    Input, use :class:`Gradient`.
+    For one sample per step of a rollout, :meth:`Modely.loop`, or a
+    :class:`Loop` body, use :class:`Derivative`. For the derivative with
+    respect to an Input, use :class:`Gradient`.
 
     Parameters
     ----------
-    dt : float
-        The time between two samples, a positive number. It is required:
-        nothing infers it from the data. The derivative is in the unit of
-        ``x`` per unit of ``dt``.
+    dt : float, default 1.0
+        The time between two samples, a positive number. Nothing infers it
+        from the data. The derivative is in the unit of ``x`` per unit of
+        ``dt``.
     poly_order : int, default 1
         The degree of the polynomial through the ``poly_order + 1`` newest
         samples: each derivative is its slope at the newest one. Any positive
@@ -1055,8 +1065,7 @@ class DerivativeStep(_FiniteDifference):
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive ("dt is required", "dt must be
-        positive"), if ``poly_order`` is not a positive integer, if ``x`` has
+        If ``dt`` is not positive ("dt must be positive"), if ``poly_order`` is not a positive integer, if ``x`` has
         no window ("acts on the window of its stream"), or if ``init`` has
         another number of samples, features or sequence ("init holds the
         samples before the first").
@@ -1197,7 +1206,7 @@ class DerivativeStep(_FiniteDifference):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, dt: float | None = None, poly_order: int = 1, name=None):
+    def __init__(self, dt: float = 1.0, poly_order: int = 1, name: str | None = None):
         # Its own arguments only: one it does not take is refused, rather than
         # kept as a setting that changes nothing.
         super().__init__(dt=dt, poly_order=poly_order, name=name)
@@ -1214,7 +1223,7 @@ class DerivativeStep(_FiniteDifference):
         self._check_function(function)
         self._needs_window(function)
         if history:
-            _check_history(self.name, history[0], function, self.past)
+            _check_history(self.name, history[0], function, self._past)
         # One derivative per sample: the window is preserved, so the result
         # stays aligned with the signal it came from.
         return function.shape
@@ -1235,8 +1244,8 @@ class DerivativeStep(_FiniteDifference):
 
 
 class Derivative(_FiniteDifference):
-    r"""Time derivative of a stream one step at a time, in a ModelyLoop or a
-    Loop body.
+    r"""Time derivative of a stream one step at a time, in a rollout or a Loop
+    body.
 
     Syntax
     ------
@@ -1252,9 +1261,10 @@ class Derivative(_FiniteDifference):
 
     ``x`` is one sample per step, ``T=1``. The layer keeps the last
     ``poly_order`` samples of ``x`` from one step to the next. They are a
-    state: an Input named ``<name>_<x>``, which the :class:`ModelyLoop` or
-    the :class:`Loop` feeds back with its other states. It is not one of
-    your Inputs: :attr:`Modely.inputs` lists it as not declared.
+    state: an Input named ``<name>_<x>``, which the rollout of
+    :meth:`Modely.loop` or the :class:`Loop` feeds back with its other
+    states. It is not one of your Inputs: :attr:`Modely.inputs` lists it as
+    not declared.
 
     The rule and the results are those of :class:`DerivativeStep` on a window
     of the same samples. Built as a plain :class:`Modely`, which has no steps,
@@ -1262,8 +1272,8 @@ class Derivative(_FiniteDifference):
 
     Parameters
     ----------
-    dt : float
-        The time between two steps, a positive number. It is required.
+    dt : float, default 1.0
+        The time between two steps, a positive number.
     poly_order : int, default 1
         The degree of the backward difference, a positive integer, as in
         :class:`DerivativeStep`: ``1`` reads the previous step, ``2`` the
@@ -1297,12 +1307,12 @@ class Derivative(_FiniteDifference):
     Stream
         The shape of ``x``, ``Shape(S, 1, D)``: the derivative at this step.
         For example, ``Input("x", tw=1)`` gives ``Shape(S=(), T=1, D=(1,))``.
-        As an output of a ModelyLoop it is a trajectory, one value per step.
+        As an output of a rollout it is a trajectory, one value per step.
 
     Raises
     ------
     ValueError
-        If ``dt`` is missing or not positive, if ``poly_order`` is not a
+        If ``dt`` is not positive, if ``poly_order`` is not a
         positive integer, if ``x`` has no window ("acts on the window of its
         stream") or more than one sample ("takes one sample per step"), or if
         ``init`` has another number of samples, features or sequence ("init
@@ -1316,7 +1326,7 @@ class Derivative(_FiniteDifference):
     --------
     DerivativeStep : The same derivative along a window.
     Integrate : The integral one step at a time, its inverse.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     Loop : The rollout of a one-step model.
 
     Notes
@@ -1340,11 +1350,11 @@ class Derivative(_FiniteDifference):
     >>> import keras
     >>> import numpy as np
     >>> from nnodely import (
-    ...     Derivative, DerivativeStep, Input, Integrate, Modely, ModelyLoop, Output,
+    ...     Derivative, DerivativeStep, Input, Integrate, Modely, Output,
     ... )
     >>> x = Input("x", tw=1)
     >>> v = Derivative(dt=0.5, name="v")(x)
-    >>> model = ModelyLoop("velocity", inputs=[x], outputs=[Output("v", v)]).build()
+    >>> model = Modely("velocity", inputs=[x], outputs=[Output("v", v)]).loop().build()
     >>> steps = np.array([1.0, 2.0, 4.0, 7.0]).reshape(1, 4, 1, 1)
     >>> keras.ops.convert_to_numpy(model({"x": steps})["v"]).ravel()
     array([2., 2., 4., 6.], dtype=float32)
@@ -1361,10 +1371,10 @@ class Derivative(_FiniteDifference):
 
     >>> from_one = Derivative(dt=0.5, init=1.0, name="from_one")(x)
     >>> second = Derivative(dt=0.5, poly_order=2, name="second")(x)
-    >>> model = ModelyLoop(
+    >>> model = Modely(
     ...     "options", inputs=[x],
     ...     outputs=[Output("from_one", from_one), Output("second", second)],
-    ... ).build()
+    ... ).loop().build()
     >>> result = model({"x": steps})
     >>> keras.ops.convert_to_numpy(result["from_one"]).ravel()
     array([0., 2., 4., 6.], dtype=float32)
@@ -1398,7 +1408,7 @@ class Derivative(_FiniteDifference):
     :class:`Integrate` with the same ``init`` gives ``x`` back:
 
     >>> back = Integrate(dt=0.5, init=3.0)(Derivative(dt=0.5, init=3.0)(x))
-    >>> model = ModelyLoop("inverse", inputs=[x], outputs=[Output("x", back)]).build()
+    >>> model = Modely("inverse", inputs=[x], outputs=[Output("x", back)]).loop().build()
     >>> keras.ops.convert_to_numpy(model({"x": steps})["x"]).ravel()
     array([1., 2., 4., 7.], dtype=float32)
 
@@ -1426,10 +1436,10 @@ class Derivative(_FiniteDifference):
 
     def __init__(
         self,
-        dt: float | None = None,
+        dt: float = 1.0,
         poly_order: int = 1,
         init: Stream | float | None = None,
-        name=None,
+        name: str | None = None,
     ):
         self._init = _validate_init("Derivative", init)
         self._calls = 0
@@ -1456,7 +1466,7 @@ class Derivative(_FiniteDifference):
                 "time window with DerivativeStep."
             )
         if isinstance(self._init, Stream):
-            _check_history(self.name, self._init, function, self.past)
+            _check_history(self.name, self._init, function, self._past)
 
         # Every call differentiates a signal of its own, so each has its own
         # past.
@@ -1467,7 +1477,7 @@ class Derivative(_FiniteDifference):
             f"{call_name}_{function.name}",
             dim=function.dim,
             seq=_declared_seq(function),
-            tw=self.past,
+            tw=self._past,
         )
         past._hidden = True
         derivative = DerivativeStep(

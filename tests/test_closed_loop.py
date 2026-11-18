@@ -19,7 +19,7 @@ from nnodely import (
     BatchNorm,
     SeqSelect,
 )
-from nnodely.layers.loop import DYNAMIC_BUILD_LENGTH
+from nnodely.layers.loop import _DYNAMIC_BUILD_LENGTH
 import pytest
 
 
@@ -78,7 +78,7 @@ def test_nested_loop(tmp_path):
         collect=False,
         init={inner: x},
     )()
-    assert first_loop.dimensions == ((5,), 1, (1,))
+    assert (first_loop.seq, first_loop.tw, first_loop.dim) == ((5,), 1, (1,))
 
     second_input = Input("second_input", dim=1, tw=1)
     second_relation = second_input * gain
@@ -102,7 +102,7 @@ def test_nested_loop(tmp_path):
     result = model({"nested_input": nested_values})
     output = to_numpy(result["nested_output"])[0]
 
-    assert second_loop.dimensions == ((), 1, (1,))
+    assert (second_loop.seq, second_loop.tw, second_loop.dim) == ((), 1, (1,))
     assert output.shape == (1, 1)
     np.testing.assert_allclose(
         output,
@@ -134,7 +134,7 @@ def test_loop_mechanical_modely(tmp_path):
         collect=False,
         init={"mechanical_state": state_seq},
     )({"external_force": external_force})
-    assert loop.dimensions == ((), 1, (1,))
+    assert (loop.seq, loop.tw, loop.dim) == ((), 1, (1,))
     model = Modely(
         "closed_mechanical_model",
         inputs=[state_seq, external_force],
@@ -394,7 +394,7 @@ def test_loop_bound_inputs(tmp_path):
         init={x: initial},
     )({u: driver})
     assert loop._horizon == 3
-    assert loop.dimensions == ((3,), 1, (1,))
+    assert (loop.seq, loop.tw, loop.dim) == ((3,), 1, (1,))
 
     model = Modely(
         "sliced_model",
@@ -464,7 +464,7 @@ def test_loop_dynamic_length():
         init={x: initial_window},
     )({u: driver_window})
     assert loop._horizon == 3
-    assert loop.dimensions == ((3,), 1, (1,))
+    assert (loop.seq, loop.tw, loop.dim) == ((3,), 1, (1,))
 
     # A dynamic rollout needs no length: it is only declared with a default one.
     unpinned = Loop(
@@ -473,7 +473,7 @@ def test_loop_dynamic_length():
         name="dyn_loop_unpinned",
         init={x: initial_window},
     )({u: driver_window})
-    assert unpinned._horizon == DYNAMIC_BUILD_LENGTH
+    assert unpinned._horizon == _DYNAMIC_BUILD_LENGTH
 
     model = Modely(
         "dyn_model",
@@ -536,7 +536,7 @@ def test_loop_window_feedback():
     assert body.built
     # The window of x, (batch, 3, 1), shifts along its tw, axis 1.
     assert loop._feedback_shift_axes == [1]
-    assert loop.dimensions == ((3,), 1, (1,))
+    assert (loop.seq, loop.tw, loop.dim) == ((3,), 1, (1,))
 
     model = Modely(
         "window_model",
@@ -975,13 +975,13 @@ def test_the_outputs_of_a_loop_are_taken_without_a_keras_layer_of_their_own():
 
 @pytest.mark.parametrize("target_name", ["aa_unread_target", "zz_unread_target"])
 def test_loop_feeds_its_body_only_the_inputs_it_reads(tmp_path, target_name):
-    # A body declaring an Input its outputs never read - here the target it is
-    # trained on - was handed it anyway, and Keras, matching the inputs by
-    # position, fed its data to another one. The loop leaves it out.
+    # A body trained on a target its outputs never read: the loop does not
+    # hand it the target, which Keras, matching the inputs by position, once
+    # fed the data of another one.
     s, u = Input("unread_s", tw=1), Input("unread_u", tw=1)
     target = Input(target_name, tw=1)
     following = Output("unread_next", s * 0.5 + u)
-    body = Modely("unread_body", inputs=[s, u, target], outputs=[following])
+    body = Modely("unread_body", inputs=[s, u], outputs=[following])
     body.minimize("unread_error", following, target)
     body.build()
 
@@ -1057,3 +1057,20 @@ def test_buffer():
         to_numpy(result["u_c_seq"]).ravel(),
         np.array([1.0, 0.0, -1.0, -1.0, 1.0, 2.0, 0.0, -3.0, -2.0, 3.0]),
     )
+
+
+def test_a_loop_never_takes_another_object_for_a_node_of_its_step():
+    # The step keys the copies it makes by id. When the body is the model
+    # itself, the copies were dropped: an object made later could be given
+    # one of their ids, and be taken for the state the copy stood for.
+    import gc
+
+    for index in range(40):
+        s, v = Input(f"ids_s{index}", tw=1), Input(f"ids_v{index}", tw=1)
+        s_next = Output(f"ids_next{index}", s + v * 0.5)
+        body = Modely(f"ids_body{index}", inputs=[s, v], outputs=[s_next])
+        step = Loop(f=body, feedback={s: s_next})._step
+        gc.collect()
+        made = [Input(f"ids_fresh{index}_{j}", tw=1) for j in range(50)]
+        assert all(step.key(node) == id(node) for node in made)
+        assert all(step.copied_from(node) is node for node in made)

@@ -1,19 +1,4 @@
-"""A validation run: the built model evaluated on a dataset, and every
-minimizer scored on what it compared.
-
-Validation sees what training sees. The forward pass is the one training runs
-on its validation data, each target is aligned with its source as training
-aligns it, the padding mask of simulations of different lengths is the same,
-and the loss is computed by the code that trains the minimizer.
-
-One minimizer gives one :class:`Signal`: the two signals it compared, whole,
-and the metrics a system-identification report is read for, as functions of
-the axes to keep.
-"""
-
 from __future__ import annotations
-
-import os
 
 import keras
 import numpy as np
@@ -23,14 +8,14 @@ from nnodely.core.minimizer import (
     _resolve_minimizer_terms,
     _rollout_mask,
 )
-from nnodely.core.results import Fields, ValidationResult, minimizer_fields
+from nnodely.core.results import ValidationResult, _minimizer_fields
 from nnodely.core.shape import Shape
-from nnodely.core.stream import object_repr
+from nnodely.core.stream import _object_repr
 from nnodely.utils.printers import _table
 
 #: Samples evaluated per forward pass during validation. Validation is defined
-#: one sample at a time - nothing about the result depends on this number - so
-#: it is a memory bound rather than a parameter worth exposing.
+#: one sample at a time, and nothing about the result depends on this number,
+#: so it is a memory bound rather than a parameter worth exposing.
 _INFERENCE_CHUNK = 256
 
 #: Every metric: what it measures, as the table of a Signal prints it, and
@@ -73,7 +58,7 @@ def _indicators(true: np.ndarray, pred: np.ndarray) -> dict[str, np.ndarray]:
     spread of the target: NRMSE is RMSE as a percentage of its range, FIT is
     ``100 (1 - ||e|| / ||true - mean(true)||)``, R2 is
     ``1 - sum(e^2) / sum((true - mean(true))^2)``, VAF is
-    ``100 (1 - var(e) / var(true))`` - R2 that forgives a constant offset -
+    ``100 (1 - var(e) / var(true))``, the R2 that forgives a constant offset,
     and correlation is Pearson's, 0 for a prediction that never moves. A
     target that never moves has no spread: its relative metrics are NaN.
     A non-finite prediction makes every metric it is in NaN.
@@ -130,26 +115,9 @@ class Signal:
     :meth:`~nnodely.Modely.validate` makes one per minimizer, in
     ``result.signals``. You do not create one yourself.
 
-    Attributes
-    ----------
-    name : str
-        The name of the minimizer.
-    source, target : numpy.ndarray
-        The two signals compared, laid out as the stream,
-        ``(samples, *seq, tw, *dim)``. A point without a target is NaN in
-        both.
-    valid : numpy.ndarray of bool
-        The points that have a target, ``(samples, *seq, tw)``.
-    shape : Shape
-        The shape of one sample.
-    samples, scored, missing : int
-        The samples, the points scored, and those without a target - the
-        steps padded onto shorter rollouts, NaN in the data. A point is one
-        sample at one step of the sequence and of the window.
-
     The metrics are functions: ``rmse``, ``mae``, ``max_error``, ``bias``,
     ``std_error``, ``nrmse_pct``, ``fit_pct``, ``r2``, ``vaf_pct`` and
-    ``correlation``, and ``non_finite``. Without arguments they give a
+    ``correlation``. Without arguments they give a
     number, over the whole signal. ``seq=``, ``tw=`` and ``dim=`` keep those
     axes, and give an array, a value per position along them: ``True`` keeps
     every axis of the group, a tuple of indices keeps those positions along
@@ -161,6 +129,28 @@ class Signal:
     averaged over the channels not kept.
 
     ``print`` shows the table of every metric over the whole signal.
+
+    Attributes
+    ----------
+    name : str
+        The name of the minimizer.
+    source : numpy.ndarray
+        The prediction compared, laid out as the stream,
+        ``(samples, *seq, tw, *dim)``. A point without a target is NaN.
+    target : numpy.ndarray
+        The reference it is compared with, laid out as ``source``. A point
+        without a target is NaN.
+    shape : Shape
+        The shape of one sample.
+    scored : int
+        The points scored. A point is one sample at one step of the sequence
+        and of the window.
+    missing : int
+        The points without a target: the steps padded onto shorter rollouts,
+        NaN in the data.
+    non_finite : int
+        The values of the source that are NaN or infinite where there is a
+        target: a prediction that diverged.
 
     Notes
     -----
@@ -188,7 +178,7 @@ class Signal:
     >>> data = DataLoader(pair, source={"v": values, "w_meas": values})
     >>> signal = pair.validate(data, verbose=False).signals["fit"]
     >>> signal
-    Signal(name='fit', samples=3, shape=Shape(S=(), T=1, D=(2,)), scored=3, missing=0)
+    Signal(name='fit', shape=Shape(S=(), T=1, D=(2,)), scored=3, missing=0)
     >>> signal.bias(), signal.bias(dim=True)
     (0.75, array([1. , 0.5]))
 
@@ -208,27 +198,28 @@ class Signal:
         hidden = ~real.reshape(*real.shape, *(1,) * len(dims))
         self.name = name
         self.shape = shape
-        self.valid = real
         self.source = np.where(hidden, np.nan, source)
         self.target = np.where(hidden, np.nan, target)
 
     @property
-    def samples(self) -> int:
-        return self.source.shape[0]
+    def _valid(self):
+        """The points that have a target, ``(samples, *seq, tw)``: those
+        where the target is not NaN."""
+        return np.isfinite(self.target).all(axis=self.shape.dim_axes)
 
     @property
     def scored(self) -> int:
-        return int(self.valid.sum())
+        return int(self._valid.sum())
 
     @property
     def missing(self) -> int:
-        return int(self.valid.size - self.valid.sum())
+        valid = self._valid
+        return int(valid.size - valid.sum())
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
-            samples=self.samples,
             shape=self.shape,
             scored=self.scored,
             missing=self.missing,
@@ -239,9 +230,7 @@ class Signal:
         for key, (meaning, spec) in _METRICS.items():
             value = getattr(self, key)()
             rows.append((key, meaning, "n/a" if value != value else spec.format(value)))
-        rows.append(
-            ("non_finite", "values of source not finite", str(self.non_finite()))
-        )
+        rows.append(("non_finite", "values of source not finite", str(self.non_finite)))
         return _table(("metric", "meaning", self.name), [("", rows)])
 
     def _metric(self, key: str, seq, tw, dim) -> float | np.ndarray:
@@ -314,10 +303,10 @@ class Signal:
         """Pearson's correlation of source and target."""
         return self._metric("correlation", seq, tw, dim)
 
+    @property
     def non_finite(self) -> int:
-        """The values of the source that are NaN or infinite where there is
-        a target: a prediction that diverged."""
-        scored = self.valid.reshape(*self.valid.shape, *(1,) * self.shape.dim_rank)
+        valid = self._valid
+        scored = valid.reshape(*valid.shape, *(1,) * self.shape.dim_rank)
         return int((scored & ~np.isfinite(self.source)).sum())
 
 
@@ -330,7 +319,7 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
     """What each minimizer compares over the dataset, as training sees it.
 
     Returns, for each term in the order of ``terms``, its loss over the whole dataset, its source, its
-    target aligned with it, and the mask of their real points - None when no
+    target aligned with it, and the mask of their real points, None when no
     point was padded.
 
     ``training=False`` is the backend-independent switch: it is what tells
@@ -377,9 +366,6 @@ def _evaluate(model, terms, x_data: dict, mask, n_samples: int) -> list:
 def validate(
     model,
     val_data,
-    out_dir: str | os.PathLike | None = None,
-    show: bool = False,
-    history=None,
     verbose: bool = False,
 ) -> ValidationResult:
     """The implementation of :meth:`Modely.validate`."""
@@ -397,8 +383,8 @@ def validate(
     compared = _evaluate(model, terms, x_data, mask, n_samples)
 
     # The total first, as Keras logs it: every loss weighted by its gain.
-    losses = Fields(loss=0.0)
-    signals = Fields()
+    losses = dict(loss=0.0)
+    signals = {}
     for minimizer, term, (loss, source, target, valid) in zip(
         model._minimizers, terms, compared
     ):
@@ -413,12 +399,10 @@ def validate(
     result = ValidationResult(
         model=model.name,
         samples=n_samples,
-        minimizers=minimizer_fields(model._minimizers),
+        minimizers=_minimizer_fields(model._minimizers),
         losses=losses,
         signals=signals,
     )
-    if out_dir is not None or show:
-        result.plot(out_dir=out_dir, show=show, history=history)
     if verbose:
         print(result)
     return result

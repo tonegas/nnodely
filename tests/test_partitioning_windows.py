@@ -92,7 +92,7 @@ def test_partitioning_windows():
     )
 
     assert data_train._dataset is not None
-    assert data_train.inputs == ["x", "y", "z"]
+    assert list(data_train.as_dict()) == ["x", "y", "z"]
     specs = {node.name: spec for node, spec in data_train._input_specs.items()}
     assert specs == {"x": [5, 0], "y": [2, 3], "z": [4, 3]}
     print("Data train dataset:", {k: v.shape for k, v in data_train._dataset.items()})
@@ -587,7 +587,7 @@ def test_a_window_only_a_minimizer_reads_widens_the_training_input():
     x = Input("trained_window_x", tw=(2, 1))
     out = Output("trained_window_out", Fir(features=1)(TimeRange(0, 2)(x)))
     model = Modely("trained_window", inputs=[x], outputs=[out])
-    model.minimize("fit", out, TimeRange(1, 3)(x))  # one sample ahead
+    model.minimize("fit", out, TimeRange(2, 3)(x))  # one sample ahead
     model.build()
     assert (x.past, x.future) == (2, 1)
 
@@ -606,7 +606,7 @@ def test_the_newest_sample_and_the_whole_window_in_one_model():
         ],
     ).build()
 
-    ## The data holds the window; TimeSelect(-1) is its newest sample - also
+    ## The data holds the window; TimeSelect(-1) is its newest sample, also
     ## in a relation declared after the build
     assert x.shape.tw == 3
     assert (TimeSelect(-1)(x) * 2.0).shape.tw == 1

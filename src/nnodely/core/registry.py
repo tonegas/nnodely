@@ -1,28 +1,28 @@
 import json
 import warnings
 from pathlib import Path
-from nnodely.core.dag import free_name
-from nnodely.core.stream import Node, class_path, registered_class
+from nnodely.core.dag import _free_name
+from nnodely.core.stream import Node, _class_path, _registered_class
 
 
 def _saved_order(model) -> list:
     """The nodes of ``model``'s own graph to save, every one after its
-    predecessors: those its outputs are computed from, its declared inputs -
-    read or not, they are what it is called with - and those its fed-back
-    Inputs are fed back with, and start from, which are no predecessors of
-    theirs. A model it calls is a node of it, saved in a folder of its own."""
-    from nnodely.core.dag import toposort
+    predecessors: those its outputs are computed from; its declared inputs,
+    read or not, since they are what it is called with; and those its
+    fed-back Inputs are fed back with, and start from, which are no
+    predecessors of theirs. A model it calls is a node of it, saved in a folder of its own."""
+    from nnodely.core.dag import _toposort
     from nnodely.layers.input import Input
 
     roots = [*model._outputs, *model._inputs]
     while True:
-        order = toposort(roots)
+        order = _toposort(roots)
         reached = set(order)
         extra = [
             stream
             for node in order
-            if isinstance(node, Input) and node.update is not None
-            for stream in (node.update, node.init)
+            if isinstance(node, Input) and node._update is not None
+            for stream in (node._update, node._init)
             if isinstance(stream, Node) and stream not in reached
         ]
         if not extra:
@@ -52,8 +52,8 @@ class _Loading:
     Every layer was saved under an id, the same for every node applying it
     in any model of the tree. Those nodes are given back one source, so they
     share their weights again, and the Keras layer the first model built for
-    it - a called model, or a body, is built before the model holding it - is
-    handed on to the models built after it. A model and an Input written in
+    it is handed on to the models built after it. A called model, or a body,
+    is built before the model holding it. A model and an Input written in
     several files of the tree are loaded once, and are one object again.
     """
 
@@ -95,14 +95,14 @@ class _Loading:
 
 class ModelSerializer:
     FORMAT = "nnodely"
-    VERSION = 17
+    VERSION = 18
 
     @staticmethod
     def serialize(model, path, *, weights: bool | str = True, saving=None):
         """Write ``model`` to the folder ``path``: its own graph in
         ``model.json``, its weights in ``model.weights.h5``, and every model
         it calls as a block, or rolls out in a Loop, in a folder of its own,
-        written the same way - so the models nest as their folders do, and
+        written the same way. So the models nest as their folders do, and
         each folder is a model that loads on its own."""
         from nnodely.core.layer import Layer
         from nnodely.core.modely import IntermediateOutput, ModelCall, Modely
@@ -138,9 +138,9 @@ class ModelSerializer:
                     f"Model {model.name!r} is saved without the weights of "
                     f"{unsaved}: only the streams its fed-back Inputs are fed "
                     "back with read them, and the model does not compute those, "
-                    "so they load back as declared. Save the Loop or ModelyLoop "
-                    "that computes them, or declare those streams among the "
-                    "outputs.",
+                    "so they load back as declared. Save the Loop, or the "
+                    "rollout of model.loop(), that computes them, or declare "
+                    "those streams among the outputs.",
                     UserWarning,
                     stacklevel=3,
                 )
@@ -153,27 +153,28 @@ class ModelSerializer:
         for node in order:
             node_data = {
                 "id": node_ids[node],
-                "class_name": class_path(type(node)),
+                "class_name": _class_path(type(node)),
                 "config": node.get_config(),
                 "preds": [node_ids[pred] for pred in node._preds],
             }
             if isinstance(node, Input):
-                # An Input a called model reads too - one this model gives
-                # it, a fed-back one - is the one this model reads: written
+                # An Input a called model reads too (one this model gives
+                # it, a fed-back one) is the one this model reads: written
                 # in both files, it is loaded as one.
                 node_data["input"] = saving.id_of(saving.inputs, node)
                 # A fed-back Input keeps the stream it is fed back with and
                 # its init, a number or a node: a loop that calls the loaded
                 # model feeds it back as it would the saved one.
-                if node.update is not None:
+                if node._update is not None:
                     node_data["feedback"] = {
-                        "update": node_ids[node.update],
+                        "update": node_ids[node._update],
                         "init": (
-                            node_ids[node.init]
-                            if isinstance(node.init, Node)
-                            else node.init
+                            node_ids[node._init]
+                            if isinstance(node._init, Node)
+                            else node._init
                         ),
                         "hidden": node._hidden,
+                        "hidden_by_user": node._hidden_by_user,
                     }
             if isinstance(node, Layer):
                 node_data["layer"] = saving.id_of(saving.layers, node._source)
@@ -186,20 +187,19 @@ class ModelSerializer:
                     if output is inner
                 )
             # A model this one calls as a block, or a Loop rolls out, is saved
-            # as a model of its own, in a folder named after it - the model
-            # called, or the Loop - so nested models nest their folders the
-            # same way. Two can share a name, so a folder already taken gets
+            # as a model of its own, in a folder named after the model called
+            # or the Loop, so nested models nest their folders the same way. Two can share a name, so a folder already taken gets
             # a suffix.
             held = node._model
             if isinstance(held, Modely):
                 folder = folders.get(id(held))
                 if folder is None:
                     base = held.name if isinstance(node, ModelCall) else node.name
-                    folder = free_name(base, set(folders.values()))
+                    folder = _free_name(base, set(folders.values()))
                     folders[id(held)] = folder
                     # Its weights are in this model's file, the ones it
-                    # computes with here. Built - a Loop body always is, a
-                    # block trained alone - or with weights="all", it saves
+                    # computes with here. Built (a Loop body always is, a
+                    # block trained alone) or with weights="all", it saves
                     # its own too, and is built again once loaded.
                     ModelSerializer.serialize(
                         held,
@@ -257,7 +257,7 @@ class ModelSerializer:
         calls: dict[str, list] = {}
 
         for node_data in data["nodes"]:
-            cls = registered_class(node_data["class_name"])
+            cls = _registered_class(node_data["class_name"])
             if cls is None:
                 raise ValueError(
                     f"The saved model holds a {node_data['class_name']!r} node, "
@@ -315,17 +315,20 @@ class ModelSerializer:
             feedback = node_data.get("feedback")
             state = node_map[node_data["id"]]
             # An Input loaded in another file of the tree already is.
-            if feedback is not None and state.update is None:
+            if feedback is not None and state._update is None:
                 init = feedback["init"]
                 state._feed_back(
                     node_map[feedback["update"]],
                     init=node_map[init] if isinstance(init, str) else init,
                 )
                 state._hidden = feedback["hidden"]
+                state._hidden_by_user = feedback["hidden_by_user"]
 
         inputs = [node_map[node_id] for node_id in data["inputs"]]
         outputs = [node_map[node_id] for node_id in data["outputs"]]
-        model = Modely(
+        # Checked when it was declared: the body of a Loop declares its
+        # hidden states too.
+        model = Modely._of(
             name=data["model"]["name"],
             inputs=inputs,
             outputs=outputs,
@@ -368,9 +371,9 @@ class ModelSerializer:
 
         model = ModelSerializer.deserialize(data, path, loading=loading)
         # The model loaded is built; a model it calls only to load weights of
-        # its own, saved when it was built - its others are in the file of the
-        # model calling it. A model loaded without its weights - saved
-        # without them, or loaded with weights=False - keeps the ones build()
+        # its own, saved when it was built, since its others are in the file
+        # of the model calling it. A model loaded without its weights (saved
+        # without them, or loaded with weights=False) keeps the ones build()
         # just gave it, as a model declared from scratch would.
         own_weights = loading.weights and weights_path.exists()
         if loaded or own_weights:

@@ -54,7 +54,7 @@ def test_automatic_layer_output_shape():
     doubled = DoubleFeatures(name="double_features")(x)
 
     assert doubled.dim == (4,)
-    assert doubled.dimensions[:2] == ((), 3)
+    assert doubled.shape.dimensions[:2] == ((), 3)
     assert doubled.shape.seq_rank == 0
 
     model = Modely(
@@ -78,8 +78,8 @@ def test_time_select():
     dropped = TimeSelect(idx=3, keep_tw=False, name="time_select_dropped")(x)
 
     assert selected.dim == (1,)
-    assert selected.dimensions[:2] == ((), 1)  # the window kept, one sample
-    assert dropped.dimensions[:2] == ((), None)  # or dropped
+    assert selected.shape.dimensions[:2] == ((), 1)  # the window kept, one sample
+    assert dropped.shape.dimensions[:2] == ((), None)  # or dropped
     assert selected.shape.seq_rank == 0
     assert dropped.get_config() == {
         "name": "time_select_dropped",
@@ -115,7 +115,7 @@ def test_time_range():
     selected = TimeRange(start=1, end=4, name="time_range")(x)
 
     assert selected.dim == (1,)
-    assert selected.dimensions[:2] == ((), 3)
+    assert selected.shape.dimensions[:2] == ((), 3)
     assert selected.shape.seq_rank == 0
 
     model = Modely(
@@ -138,7 +138,7 @@ def test_range():
     selected = Range(start=1, end=3, axis=0, name="range")(x)
 
     assert selected.dim == (2,)
-    assert selected.dimensions[:2] == ((), 1)
+    assert selected.shape.dimensions[:2] == ((), 1)
     assert selected.shape.seq_rank == 0
 
     model = Modely(
@@ -165,7 +165,7 @@ def test_linear_interpolation():
         name="linear_interpolation",
     )(x)
 
-    assert interpolated.dimensions == ((), 5, (1,))
+    assert interpolated.shape.dimensions == ((), 5, (1,))
     model = Modely(
         "linear_interpolation_model",
         inputs=[x],
@@ -211,6 +211,29 @@ def test_polynomial_interpolation(tmp_path):
         restored({"polynomial_input": values})["interpolated"]  # type: ignore
     )
     np.testing.assert_allclose(restored_result, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_interpolation_mode_is_a_member_or_its_string():
+    from nnodely import InterpolationMode
+
+    x = Input("mode_member_x", tw=1)
+    modes = [InterpolationMode.POLYNOMIAL, "polynomial", "POLYNOMIAL"]
+    layers = [
+        Interpolation([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=mode) for mode in modes
+    ]
+    model = Modely(
+        "mode_member",
+        inputs=[x],
+        outputs=[
+            Output(f"mode_member_{i}", layer(x)) for i, layer in enumerate(layers)
+        ],
+    ).build()
+    result = model({"mode_member_x": np.array([[[1.5]]], dtype=np.float32)})
+    for index in range(len(modes)):
+        np.testing.assert_allclose(
+            to_numpy(result[f"mode_member_{index}"]).item(), 2.25, rtol=1e-6
+        )
+    assert all(type(layer.get_config()["mode"]) is str for layer in layers)
 
 
 @pytest.mark.parametrize(
@@ -479,7 +502,7 @@ def test_concatenate_multiple_tensors_on_multidimensional_axis():
     )
 
     assert concatenated.dim == (6, 2)
-    assert concatenated.dimensions[:2] == ((), 2)
+    assert concatenated.shape.dimensions[:2] == ((), 2)
     assert result.shape == (1, 2, 6, 2)
     np.testing.assert_array_equal(
         result, np.concatenate([x_data, y_data, z_data], axis=2)
@@ -528,7 +551,7 @@ def test_time_concatenate_multiple_tensors():
     )
 
     assert concatenated.dim == (2,)
-    assert concatenated.dimensions[:2] == ((), 6)
+    assert concatenated.shape.dimensions[:2] == ((), 6)
     assert result.shape == (1, 6, 2)
     np.testing.assert_array_equal(
         result, np.concatenate([x_data, y_data, z_data], axis=1)
@@ -610,7 +633,7 @@ def test_batchnorm_inference_and_training():
     normalized = BatchNorm(name="batchnorm")([x])
 
     assert normalized.dim == (2,)
-    assert normalized.dimensions[:2] == ((), 3)
+    assert normalized.shape.dimensions[:2] == ((), 3)
     assert normalized.shape.seq_rank == 0
 
     model = Modely(
@@ -709,8 +732,12 @@ def test_linear_initializers_are_saved_with_the_architecture(tmp_path):
     restored_linear = restored["initialized_linear"]
 
     assert isinstance(restored_linear, Linear)
-    np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.ones((2, 3)))
-    np.testing.assert_allclose(to_numpy(restored_linear.bias), np.zeros(3))
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["kernel"].param), np.ones((2, 3))
+    )
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["bias"].param), np.zeros(3)
+    )
 
 
 def test_linear_takes_its_kernel_and_bias_from_parameters():
@@ -730,8 +757,11 @@ def test_linear_takes_its_kernel_and_bias_from_parameters():
 
     # The Parameters are predecessors of the Linear, and the only weights.
     assert linear._preds[1] is w and linear._preds[2] is b
-    assert linear.kernel is w.param and linear.bias is b.param
-    assert unbiased.bias is None
+    assert (
+        linear.weights["kernel"].param is w.param
+        and linear.weights["bias"].param is b.param
+    )
+    assert "bias" not in unbiased.weights
     assert model._keras_model is not None
     assert {id(weight) for weight in model._keras_model.trainable_weights} == {
         id(w.param),
@@ -813,9 +843,12 @@ def test_linear_projects_the_whole_dim_by_default():
         outputs=[Output("lin_dim_sum", summed), Output("lin_dim_drawn", drawn)],
     ).build()
     assert summed.shape.dimensions == ((2,), 4, (2,))
-    assert drawn.kernel is not None and drawn.bias is not None
-    assert tuple(drawn.kernel.shape) == (2, 3, 2)
-    assert tuple(drawn.bias.shape) == (2,)
+    assert (
+        drawn.weights["kernel"].param is not None
+        and drawn.weights["bias"].param is not None
+    )
+    assert tuple(drawn.weights["kernel"].param.shape) == (2, 3, 2)
+    assert tuple(drawn.weights["bias"].param.shape) == (2,)
 
     values = _linear_values((5, 2, 4, 2, 3), seed=12)
     result = model({"lin_dim_x": values})
@@ -825,9 +858,9 @@ def test_linear_projects_the_whole_dim_by_default():
     np.testing.assert_allclose(
         to_numpy(result["lin_dim_sum"]), np.stack([total, total], axis=-1), rtol=1e-5
     )
-    expected = np.einsum("bstij,ijo->bsto", values, to_numpy(drawn.kernel)) + to_numpy(
-        drawn.bias
-    ).reshape(1, 1, 1, 2)
+    expected = np.einsum(
+        "bstij,ijo->bsto", values, to_numpy(drawn.weights["kernel"].param)
+    ) + to_numpy(drawn.weights["bias"].param).reshape(1, 1, 1, 2)
     np.testing.assert_allclose(
         to_numpy(result["lin_dim_drawn"]), expected, rtol=1e-5, atol=1e-5
     )
@@ -865,18 +898,21 @@ def test_linear_with_an_axis_projects_that_axis_alone(
         "lin_axis_model", inputs=[x], outputs=[Output("lin_axis_out", linear)]
     ).build()
     assert linear.shape.dimensions == ((2,), 4, out_dim)
-    assert linear.kernel is not None and linear.bias is not None
-    assert tuple(linear.kernel.shape) == kernel_shape
-    assert tuple(linear.bias.shape) == bias_shape
+    assert (
+        linear.weights["kernel"].param is not None
+        and linear.weights["bias"].param is not None
+    )
+    assert tuple(linear.weights["kernel"].param.shape) == kernel_shape
+    assert tuple(linear.weights["bias"].param.shape) == bias_shape
 
     values = _linear_values((5, 2, 4, 2, 3), seed=13)
     result = to_numpy(model({"lin_axis_x": values})["lin_axis_out"])
-    bias = np.einsum(bias_terms, to_numpy(linear.bias))
+    bias = np.einsum(bias_terms, to_numpy(linear.weights["bias"].param))
     if shared_kernel:  # one bias per output, along the axis
         bias = bias.reshape([2 if index == axis % 2 else 1 for index in range(2)])
-    expected = np.einsum(subscripts, values, to_numpy(linear.kernel)) + bias.reshape(
-        1, 1, 1, *bias.shape
-    )
+    expected = np.einsum(
+        subscripts, values, to_numpy(linear.weights["kernel"].param)
+    ) + bias.reshape(1, 1, 1, *bias.shape)
     np.testing.assert_allclose(result, expected, rtol=1e-5, atol=1e-5)
 
     # The axis and the sharing are the architecture: saved and loaded with it.
@@ -916,7 +952,7 @@ def test_linear_draws_a_whole_dim_kernel_as_one_matrix():
     )(x)
     Modely("lin_draw", inputs=[x], outputs=[Output("lin_draw_out", linear)]).build()
 
-    kernel = np.abs(to_numpy(linear.kernel))
+    kernel = np.abs(to_numpy(linear.weights["kernel"].param))
     assert kernel.max() <= np.sqrt(3.0)
     assert kernel.max() > 0.5
 
@@ -994,8 +1030,8 @@ def test_softmax_normalizes_every_value_of_each_sample():
 def _fir_weights(fir, kernel_shape, bias_shape):
     kernel = np.arange(np.prod(kernel_shape), dtype=np.float32)
     kernel = kernel.reshape(kernel_shape) / 10.0
-    fir.kernel.assign(kernel)
-    fir.bias.assign(np.full(bias_shape, 0.5, dtype=np.float32))
+    fir.weights["kernel"].param.assign(kernel)
+    fir.weights["bias"].param.assign(np.full(bias_shape, 0.5, dtype=np.float32))
     return kernel
 
 
@@ -1040,9 +1076,12 @@ def test_fir_filters_every_element_with_its_own_kernel():
     fir = Fir(features=4, name="fir_own")([x])
     model = Modely("fir_own_model", inputs=[x], outputs=[Output("fir_own_out", fir)])
     model.build()
-    assert fir.kernel is not None and fir.bias is not None
-    assert tuple(fir.kernel.shape) == (2, 3, 5, 4)
-    assert tuple(fir.bias.shape) == (2, 3, 4)
+    assert (
+        fir.weights["kernel"].param is not None
+        and fir.weights["bias"].param is not None
+    )
+    assert tuple(fir.weights["kernel"].param.shape) == (2, 3, 5, 4)
+    assert tuple(fir.weights["bias"].param.shape) == (2, 3, 4)
 
     kernel = _fir_weights(fir, (2, 3, 5, 4), (2, 3, 4))
     values = np.random.default_rng(3).normal(size=(2, 5, 2, 3)).astype(np.float32)
@@ -1066,9 +1105,12 @@ def test_fir_with_a_shared_kernel_filters_every_element_alike():
         "fir_shared_model", inputs=[x], outputs=[Output("fir_shared_out", fir)]
     )
     model.build()
-    assert fir.kernel is not None and fir.bias is not None
-    assert tuple(fir.kernel.shape) == (5, 4)
-    assert tuple(fir.bias.shape) == (4,)
+    assert (
+        fir.weights["kernel"].param is not None
+        and fir.weights["bias"].param is not None
+    )
+    assert tuple(fir.weights["kernel"].param.shape) == (5, 4)
+    assert tuple(fir.weights["bias"].param.shape) == (4,)
 
     kernel = _fir_weights(fir, (5, 4), (4,))
     values = np.random.default_rng(4).normal(size=(2, 5, 2, 3)).astype(np.float32)
@@ -1169,8 +1211,8 @@ def test_fir_shared_kernel_is_saved_with_the_architecture(tmp_path):
     restored_fir = {node.name: node for node in restored._order}["fir_saved"]
 
     assert isinstance(restored_fir, Fir) and restored_fir._shared_kernel
-    assert restored_fir.kernel is not None
-    assert tuple(restored_fir.kernel.shape) == (3, 4)
+    assert restored_fir.weights["kernel"].param is not None
+    assert tuple(restored_fir.weights["kernel"].param.shape) == (3, 4)
     np.testing.assert_allclose(
         to_numpy(restored({"fir_saved_x": values})["fir_saved_out"]),
         before,
@@ -1187,11 +1229,13 @@ def test_fir_draws_the_filter_of_each_element_alone():
     fir = Fir(features=2, name="fir_draw")([x])
     Modely("fir_draw", inputs=[x], outputs=[Output("fir_draw_out", fir)]).build()
 
-    kernel = to_numpy(fir.kernel)
+    kernel = to_numpy(fir.weights["kernel"].param)
     assert np.abs(kernel).max() <= 1.0
     assert np.abs(kernel).max() > 0.5
     assert not np.allclose(kernel[0, 0], kernel[0, 1])
-    np.testing.assert_allclose(to_numpy(fir.bias), np.zeros((10, 10, 2)))
+    np.testing.assert_allclose(
+        to_numpy(fir.weights["bias"].param), np.zeros((10, 10, 2))
+    )
 
 
 def test_fir_initializers_are_saved_with_the_architecture(tmp_path):
@@ -1205,16 +1249,24 @@ def test_fir_initializers_are_saved_with_the_architecture(tmp_path):
     model = Modely(
         "fir_init", inputs=[x], outputs=[Output("fir_init_out", fir)]
     ).build()
-    np.testing.assert_allclose(to_numpy(fir.kernel), np.ones((2, 4, 3)))
-    np.testing.assert_allclose(to_numpy(fir.bias), np.full((2, 3), 0.5))
+    np.testing.assert_allclose(
+        to_numpy(fir.weights["kernel"].param), np.ones((2, 4, 3))
+    )
+    np.testing.assert_allclose(
+        to_numpy(fir.weights["bias"].param), np.full((2, 3), 0.5)
+    )
 
     model.save(tmp_path / "fir_init", weights=False)
     restored = {node.name: node for node in Modely.load(tmp_path / "fir_init")._order}
     restored_fir = restored["fir_init"]
 
     assert isinstance(restored_fir, Fir)
-    np.testing.assert_allclose(to_numpy(restored_fir.kernel), np.ones((2, 4, 3)))
-    np.testing.assert_allclose(to_numpy(restored_fir.bias), np.full((2, 3), 0.5))
+    np.testing.assert_allclose(
+        to_numpy(restored_fir.weights["kernel"].param), np.ones((2, 4, 3))
+    )
+    np.testing.assert_allclose(
+        to_numpy(restored_fir.weights["bias"].param), np.full((2, 3), 0.5)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1239,7 +1291,9 @@ def test_fir_takes_its_kernel_and_bias_from_parameters(
 
     # The Parameters are predecessors of the Fir, and the only weights.
     assert fir._preds[1] is w and fir._preds[2] is b
-    assert fir.kernel is w.param and fir.bias is b.param
+    assert (
+        fir.weights["kernel"].param is w.param and fir.weights["bias"].param is b.param
+    )
     assert model._keras_model is not None
     assert {id(weight) for weight in model._keras_model.trainable_weights} == {
         id(w.param),
@@ -1268,7 +1322,7 @@ def test_fir_takes_a_parameter_whose_shape_differs_only_by_axes_of_size_one():
     model = Modely(
         "fir_ones_model", inputs=[x], outputs=[Output("fir_ones_out", fir)]
     ).build()
-    assert fir.bias is None
+    assert "bias" not in fir.weights
 
     values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
     result = to_numpy(model({"fir_ones_x": values})["fir_ones_out"])
@@ -1293,14 +1347,17 @@ def test_firs_given_one_parameter_share_its_weight(tmp_path):
     }
 
     # One variable, held by the Parameter, behind both Firs.
-    assert first.kernel is w.param and second.kernel is w.param
+    assert (
+        first.weights["kernel"].param is w.param
+        and second.weights["kernel"].param is w.param
+    )
     assert (
         model._keras_model is not None
         and len(model._keras_model.trainable_weights) == 1
     )
 
     # Changed through one Fir, the kernel changes for the other as well.
-    first.kernel.assign(np.array([0.0, 0.0, 2.0], dtype=np.float32))
+    first.weights["kernel"].param.assign(np.array([0.0, 0.0, 2.0], dtype=np.float32))
     result = model(data)
     np.testing.assert_allclose(to_numpy(result["fir_twin_first"]).ravel(), [6.0])
     np.testing.assert_allclose(to_numpy(result["fir_twin_second"]).ravel(), [60.0])
@@ -1340,7 +1397,7 @@ def test_fir_trains_the_parameters_it_is_given():
 
     signal = np.random.default_rng(9).normal(size=100).astype(np.float32)
     data = DataLoader(model, source={"fir_train_x": signal, "fir_train_y": signal})
-    model.train(data, epochs=1, batch_size=16, lr=1e-2, printer=None)
+    model.train(data, epochs=1, batch_size=16, lr=1e-2, verbose=False)
 
     assert not np.allclose(to_numpy(w.param), 0.0)
     assert not np.allclose(to_numpy(b.param), 0.0)
@@ -1395,8 +1452,8 @@ import nnodely  # noqa: E402
 
 _APPLIED_ON_CREATION = [
     "Abs", "Acos", "Acosh", "Asin", "Asinh", "Atan", "Atanh", "Ceil", "Cos",
-    "Cosh", "Deg2Rad", "Exp", "Expm1", "Floor", "Log", "Log10", "Log1p",
-    "Log2", "Negative", "Rad2Deg", "Round", "Sigmoid", "Sign", "Sin", "Sinh",
+    "Cosh", "Deg2Rad", "Exp", "Floor", "Log", "Log10", "Log2", "Negative",
+    "Rad2Deg", "Round", "Sigmoid", "Sign", "Sin", "Sinh",
     "Softplus", "Sqrt", "Square", "Swish", "Tan", "Tanh",
 ]  # fmt: skip
 
@@ -1535,8 +1592,8 @@ def test_elu_keeps_a_finite_gradient_for_large_inputs():
     model.minimize("elu_large_fit", out, 0.0)
     model.build()
     data = DataLoader(model, source={"elu_large_x": np.full((1, 1), 100.0, np.float32)})
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=1e-4, printer=None)
-    np.testing.assert_allclose(np.ravel(w.value_numpy), [-1.0], rtol=1e-5)  # type: ignore
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=1e-4, verbose=False)
+    np.testing.assert_allclose(np.ravel(w.value), [-1.0], rtol=1e-5)  # type: ignore
 
 
 def test_prelu_learns_one_slope_per_feature():

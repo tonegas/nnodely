@@ -107,7 +107,7 @@ def _minimized_model(name):
     target = Input(f"{name}_target", dim=1, tw=1)
     hidden = Linear(features=1, name=f"{name}_hidden")(TimeSelect(-1)(x))
     prediction = Output(f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x) + hidden)
-    model = Modely(name, inputs=[x, target], outputs=[prediction])
+    model = Modely(name, inputs=[x], outputs=[prediction])
     model.minimize(f"{name}_fit", source=prediction, target=target)
     model.minimize(f"{name}_small", source=hidden, target=0.0)
     return model.build()
@@ -184,7 +184,7 @@ def test_inference_runs_with_the_trained_weights():
     x = _windows()
     before = to_numpy(model({"trained_x": x})["trained_pred"])
 
-    model.train(train_data=data, epochs=3, batch_size=8, lr=1e-2, printer=None)
+    model.train(train_data=data, epochs=3, batch_size=8, lr=1e-2, verbose=False)
 
     after = to_numpy(model({"trained_x": x})["trained_pred"])
     assert model._keras_model is not None
@@ -247,20 +247,21 @@ def test_inference_takes_its_arrays_as_a_block_takes_its_streams():
     target = np.ones((4, 1, 1), dtype=np.float32)
     expected = to_numpy(model({"keyed_inference_x": windows})["keyed_inference_pred"])
 
-    # Keyed by Input or by name, or listed in the order of the inputs - the
-    # target too, which the outputs do not read: the same run.
+    # Keyed by Input or by name, listed in the order of the inputs, or the
+    # array alone of its one input: the same run.
     for given in (
         {x: windows},
         {x: windows, "keyed_inference_unknown": target},
-        [windows, target],
-        (windows, target),
+        [windows],
+        (windows,),
+        windows,
     ):
         np.testing.assert_allclose(
             to_numpy(model(given)["keyed_inference_pred"]), expected
         )
 
-    with pytest.raises(ValueError, match="2 inputs"):
-        model([windows])
+    with pytest.raises(ValueError, match="takes one value for each"):
+        model([windows, target])
     with pytest.raises(ValueError, match="two values for its input"):
         model({x: windows, "keyed_inference_x": windows})
     with pytest.raises(TypeError, match="streams and arrays together"):
@@ -293,7 +294,7 @@ def test_a_model_that_reads_no_input_is_refused_at_build():
 def test_a_model_declares_every_input_it_reads():
     # An Input read without being declared was an input all the same, the
     # init of an Integrate too: a block read it from the data of its caller.
-    # Only a fed-back Input, or one only a minimizer reads, is left out.
+    # Only a hidden state, or an Input only a minimizer reads, is left out.
     from nnodely import Integrate
 
     x, y, x0 = Input("decl_x", tw=1), Input("decl_y", tw=1), Input("decl_x0", tw=1)
@@ -318,12 +319,18 @@ def test_a_model_declares_every_input_it_reads():
     result = caller({"decl_u": np.ones((1, 1, 1)), "decl_x0": np.full((1, 1, 1), 10.0)})
     np.testing.assert_allclose(to_numpy(result["decl_co"]).ravel(), [11.0])
 
+    # A fed-back Input too: it was read from the data with a warning.
     state, target = Input("decl_state", tw=1), Input("decl_target", tw=1)
     state.feedback(state + x)
-    model = Modely("decl_left_out", inputs=[x], outputs=[Output("decl_lo", state + x)])
+    with pytest.raises(
+        ValueError, match=r"'decl_left_out' reads the Inputs \['decl_state'\]"
+    ):
+        Modely("decl_left_out", inputs=[x], outputs=[Output("decl_lo", state + x)])
+    model = Modely(
+        "decl_left_in", inputs=[x, state], outputs=[Output("decl_lo", state + x)]
+    )
     model.minimize("decl_error", "decl_lo", target)
-    with pytest.warns(UserWarning, match="fed-back Inputs"):
-        model.build()
+    model.build()
     assert {node.name for node in model._train_inputs} == {
         "decl_x",
         "decl_state",
@@ -362,7 +369,11 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         ]
 
     built = state()
-    model.minimize("clash", out, Input("failed_build_y", tw=2))
+    # Named like y after it is minimized: the build reads two Inputs of one
+    # name.
+    twin = Input("failed_build_twin", tw=1)
+    model.minimize("clash", out, twin)
+    twin.name = "failed_build_y"
     with pytest.raises(ValueError, match="two different Inputs named"):
         model.build()
     assert state() == built
@@ -372,7 +383,7 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         model,
         source={"failed_build_y": np.zeros(12), "failed_build_target": np.zeros(12)},
     )
-    model.train(data, epochs=1, printer=None)
+    model.train(data, epochs=1, verbose=False)
 
 
 def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):

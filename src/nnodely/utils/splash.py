@@ -1,17 +1,3 @@
-"""The splash nnodely prints when it is imported.
-
-One band, 80 columns by 6 lines: a neural network of 3 inputs, 5 hidden
-neurons and 2 outputs feeds the ``nn`` of the wordmark, and the wordmark
-drives, with a shaft, the base of a mass held by a spring and a damper. The
-``nn`` in the gradient of nnodely, the network in sky blue and violet from
-where it joins the ``nn``, the other letters white, the machine from yellow
-to red. Under the wordmark, ending at the tail of the ``y``, the versions of
-nnodely and of Keras and the backend Keras runs on.
-
-It shows in a terminal or a notebook, and never when the output is piped or
-captured. ``NNODELY_SPLASH=0`` turns it off.
-"""
-
 from __future__ import annotations
 
 import colorsys
@@ -32,8 +18,8 @@ from nnodely.utils.printers import (
 #: The width of the splash: a standard line.
 _WIDTH = 80
 
-#: The network - its neurons (●), every connection between two layers and its
-#: joint into the ``nn`` in Braille dots - the shaft, and the mass, spring
+#: The network (its neurons ●, every connection between two layers and its
+#: joint into the ``nn`` in Braille dots), the shaft, and the mass, spring
 #: and damper: the wordmark is drawn between them. Over its top the network
 #: flows on, in dots of ordinary width, with neurons here and there, broken
 #: by the stems of d and l, down to the spring; a branch drops to a neuron
@@ -127,7 +113,7 @@ def _logo_colour(x: int, y: int) -> tuple:
     return _BONE
 
 
-def splash(colour: bool = False) -> str:
+def _splash(colour: bool = False) -> str:
     """The splash as text, in colour when ``colour``."""
     from nnodely import __version__
 
@@ -175,4 +161,4 @@ def show_splash() -> None:
     except Exception:
         interactive = False
     if interactive:
-        print(splash(colour=_shows_colour(stream)))
+        print(_splash(colour=_shows_colour(stream)))

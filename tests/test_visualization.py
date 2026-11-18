@@ -5,7 +5,6 @@ import re
 from nnodely import (
     Input,
     Integrate,
-    ModelyLoop,
     Output,
     EquationLearner,
     Fir,
@@ -242,7 +241,7 @@ def _graph(page):
 
 def _names(page):
     """What the page shows for every node id: its label, after the names of
-    the regions it is spliced in - ``block/body/x`` - as a reader finds it.
+    the regions it is spliced in (``block/body/x``), as a reader finds it.
     The ids themselves are the page's own, n0, n1, ..."""
     nodes, _ = _graph(page)
     regions = json.loads(
@@ -310,15 +309,23 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
     # the call binds to its x; it was once drawn reading x, and k was left
     # alone on the flattened page.
     x = Input("bound_x", tw=1)
-    inner = ModelyLoop(
-        "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
-    ).build()
+    inner = (
+        Modely(
+            "bound_inner", inputs=[x], outputs=[Output("bound_xx", Integrate(dt=1)(x))]
+        )
+        .loop()
+        .build()
+    )
     k = Input("bound_k", tw=1, seq=-1)
-    outer = ModelyLoop(
-        "bound_outer",
-        inputs=[k],
-        outputs=[Output("bound_kk", Integrate(dt=1)(inner(k)))],
-    ).build()
+    outer = (
+        Modely(
+            "bound_outer",
+            inputs=[k],
+            outputs=[Output("bound_kk", Integrate(dt=1)(inner(k)))],
+        )
+        .loop()
+        .build()
+    )
     outer.export_html(out_dir=tmp_path, filename="bound_outer")
 
     page = (tmp_path / "bound_outer__flattened.html").read_text(encoding="utf-8")
@@ -333,17 +340,21 @@ def test_a_loop_inlined_from_a_called_model_reads_the_streams_the_call_binds(
 
     # The state of a called loop starts from the stream the call binds.
     y0 = Input("bound_y0", tw=1)
-    seeded = ModelyLoop(
-        "bound_seeded",
-        inputs=[x, y0],
-        outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
-    ).build()
+    seeded = (
+        Modely(
+            "bound_seeded",
+            inputs=[x, y0],
+            outputs=[Output("bound_xs", Integrate(dt=1, init=y0)(x))],
+        )
+        .loop()
+        .build()
+    )
     k0 = Input("bound_k0", tw=1, seq=-1)
     caller = Modely(
         "bound_caller", inputs=[k, k0], outputs=[Output("bound_o", seeded([k, k0]))]
     ).build()
     table = str(caller.inputs)
-    assert "bound_k0, first step" in table
+    assert "'bound_k0'" in table
     assert "bound_y0" not in table
 
 
@@ -530,12 +541,12 @@ def test_equation_learner_plot_writes_the_new_math_functions():
     import sympy
 
     learner = _equation_learner(
-        "math_drawn", ["sinh", "log2", "log1p", "square", "round"], features=5
+        "math_drawn", ["sinh", "log2", "log10", "square", "round"], features=5
     )
     assert [sympy.latex(equation.rhs) for equation in learner.plot()] == [
         r"\sinh{\left(x \right)}",
         r"\log_{2}{\left(x \right)}",
-        r"\log{\left(x + 1 \right)}",
+        r"\log_{10}{\left(x \right)}",
         "x^{2}",
         r"\operatorname{round}{\left(x \right)}",
     ]
@@ -651,8 +662,8 @@ def _pages(model, tmp_path):
 
 
 def test_a_name_like_a_path_does_not_hide_a_node(tmp_path):
-    # Once, a node of the graph named like the id of a spliced body node -
-    # "block/x" - took its id and vanished from the flattened page.
+    # Once, a node of the graph named like the id of a spliced body node
+    # ("block/x") took its id and vanished from the flattened page.
     x = Input("path_x", tw=1)
     block = Modely("path_block", inputs=[x], outputs=[Output("path_y", x * 2.0)])
     u = Input("path_u", tw=1)
@@ -684,12 +695,12 @@ def test_a_node_named_like_a_loss_is_drawn_apart(tmp_path):
     _assert_no_dangling(standard)
 
 
-def test_a_renamed_modelyloop_state_is_drawn_once(tmp_path):
-    # The rollout Input a ModelyLoop makes of its state is bound to it by
-    # object: renamed, they are still one node - once two, matched by name.
+def test_a_renamed_model_loop_state_is_drawn_once(tmp_path):
+    # The rollout Input model.loop() makes of its state is bound to it by
+    # object: renamed, they are still one node (once two, matched by name).
     x, u = Input("ren_x", tw=1), Input("ren_u", tw=1)
     x.feedback(x + u)
-    sim = ModelyLoop("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)])
+    sim = Modely("ren_sim", inputs=[x, u], outputs=[Output("ren_out", x)]).loop()
     sim.inputs["ren_x"].name = "ren_position"
 
     _, flattened = _pages(sim, tmp_path)

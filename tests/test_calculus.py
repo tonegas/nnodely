@@ -4,7 +4,7 @@ import keras
 import numpy as np
 import pytest
 
-from conftest import CONVERGED, requires_onnx_export, to_numpy
+from conftest import CONVERGED, to_numpy
 from nnodely import (
     Buffer,
     DataLoader,
@@ -18,7 +18,6 @@ from nnodely import (
     Linear,
     Loop,
     Modely,
-    ModelyLoop,
     Output,
     Parameter,
     Sin,
@@ -184,7 +183,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
 
     values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
     result = to_numpy(model({"fir_x": values})["dx"])
-    weights = to_numpy(fun.kernel).reshape(1, 3, 1)
+    weights = to_numpy(fun.weights["kernel"].param).reshape(1, 3, 1)
 
     assert result.shape == (1, 3, 1)
     np.testing.assert_allclose(result, weights, rtol=1e-5, atol=1e-5)
@@ -255,7 +254,7 @@ def test_differentiate_trains_a_parameter_kernel():
     model.build()
 
     data = DataLoader(model, source={"dk_x": np.ones((1, 1), dtype=np.float32)})
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, printer=None)
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, verbose=False)
 
     assert k.param is not None
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], rtol=1e-5)
@@ -291,7 +290,7 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
     # Parameter, shared by both calls.
     u, s = Input("gl_u", tw=1), Input("gl_s", tw=1)
     p = Parameter("gl_p", value=[0.5])
-    s.feedback(s + u + p)
+    s.feedback(s + u + p, hidden=True)
     block = Modely(
         "gl_block", inputs=[u], outputs=[Output("gl_d", Gradient(wrt=s)(s * s))]
     )
@@ -322,18 +321,22 @@ def test_a_gradient_in_a_block_called_twice_in_a_loop_reads_the_state_of_its_cal
     np.testing.assert_allclose(to_numpy(result["gl_ob"]).ravel(), [0.0, 6.0, 12.0])
 
 
-def test_a_gradient_in_a_block_called_twice_in_a_modelyloop_reads_its_state():
+def test_a_gradient_in_a_block_called_twice_in_a_model_loop_reads_its_state():
     u, s = Input("gm_u", tw=1), Input("gm_s", tw=1)
-    s.feedback(s + u)
+    s.feedback(s + u, hidden=True)
     block = Modely(
         "gm_block", inputs=[u], outputs=[Output("gm_d", Gradient(wrt=s)(s * s))]
     )
     a, b = Input("gm_a", tw=1), Input("gm_b", tw=1)
-    loop = ModelyLoop(
-        "gm_loop",
-        inputs=[a, b],
-        outputs=[Output("gm_da", block([a])), Output("gm_db", block([b]))],
-    ).build()
+    loop = (
+        Modely(
+            "gm_loop",
+            inputs=[a, b],
+            outputs=[Output("gm_da", block([a])), Output("gm_db", block([b]))],
+        )
+        .loop()
+        .build()
+    )
     result = loop({"gm_a": np.ones((1, 3, 1)), "gm_b": np.full((1, 3, 1), 2.0)})
     np.testing.assert_allclose(to_numpy(result["gm_da"]).ravel(), [0.0, 2.0, 4.0])
     np.testing.assert_allclose(to_numpy(result["gm_db"]).ravel(), [0.0, 4.0, 8.0])
@@ -347,9 +350,13 @@ def test_a_gradient_against_an_input_of_a_block_bound_by_a_call_raises():
         "gb_block", inputs=[x, y], outputs=[Output("gb_d", Gradient(wrt=x)(x * y))]
     )
     z, w = Input("gb_z", tw=1), Input("gb_w", tw=1)
-    for name, streams in (("gb_zw", [z, w]), ("gb_zz", [z, z]), ("gb_e", [z + 1.0, w])):
+    for name, streams, inputs in (
+        ("gb_zw", [z, w], [z, w]),
+        ("gb_zz", [z, z], [z]),
+        ("gb_e", [z + 1.0, w], [z, w]),
+    ):
         model = Modely(
-            name, inputs=[z, w], outputs=[Output(f"{name}_o", block(streams))]
+            name, inputs=inputs, outputs=[Output(f"{name}_o", block(streams))]
         )
         with pytest.raises(ValueError, match="does not depend on input 'gb_x'"):
             model.build()
@@ -363,7 +370,7 @@ def test_derivative_wrt_input_the_relation_does_not_read_raises():
     with pytest.raises(ValueError, match="does not depend on input"):
         Modely(
             "derivative_unrelated_model",
-            inputs=[x, y],
+            inputs=[x],
             outputs=[Output("dy", Gradient(order=1, wrt=y)(fun))],
         ).build()
 
@@ -451,7 +458,7 @@ def test_derivative_wrt_time_reads_a_number_as_the_initial_condition():
 
 
 def test_derivative_wrt_time_reads_a_stream_as_the_initial_condition():
-    """The initial condition is a Stream like any other - here the state the
+    """The initial condition is a Stream like any other: here the state the
     window continues, so consecutive chunks of a trajectory join up instead
     of restarting from zero."""
     dt = 0.1
@@ -535,7 +542,7 @@ def test_derivative_wrt_time_second_order_repeats_a_single_init_sample():
 def test_derivative_wrt_time_a_higher_poly_order_is_more_accurate():
     """poly_order=2 fits a parabola instead of a line, so it differentiates a
     quadratic trajectory exactly where the two-sample difference lags by half
-    a step - same causality, one more sample of history."""
+    a step, with the same causality and one more sample of history."""
     dt = 0.1
     v = Input("time_accuracy_v", dim=1, tw=4)
 
@@ -732,10 +739,8 @@ def test_each_derivative_takes_only_its_own_kind_of_variable():
     x = Input("split_x", dim=1, tw=1)
     with pytest.raises(TypeError, match="use Derivative"):
         Gradient(order=1, wrt=0.1)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="must be the Input"):
-        Gradient(order=1)
-    with pytest.raises(ValueError, match="dt is required"):
-        DerivativeStep()
+    with pytest.raises(TypeError, match="wrt"):
+        Gradient(order=1)  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="must be positive"):
         DerivativeStep(dt=0.0)
     with pytest.raises(TypeError, match="dt must be a number"):
@@ -763,7 +768,7 @@ def test_derivative_wrt_input_in_a_multi_dimensional_relation():
 
 
 def _build_mixed_derivative_model(name):
-    """One model exercising both modes at once - including the tw
+    """One model exercising both modes at once, including the tw
     derivative's configuration (init, window, poly_order), which has to
     survive a round trip like any other layer state."""
     x = Input(f"{name}_x", dim=1, tw=2)
@@ -836,10 +841,8 @@ def test_derivative_export_keras_round_trip(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]), value, rtol=1e-5, atol=1e-5)
 
 
-@requires_onnx_export
 def test_derivative_export_onnx(tmp_path):
-    """A differentiated graph carries its backward pass into ONNX; the batch
-    axis is fixed for it, which is what the exporter can convert."""
+    """A differentiated graph carries its backward pass into ONNX."""
     _, _, model = _build_mixed_derivative_model("derivative_onnx_model")
     model.build()
 
@@ -852,7 +855,7 @@ def test_derivative_export_onnx(tmp_path):
 
     if keras.backend.backend() == "torch":
         # Torch traces a forward pass only, so it cannot record the backward
-        # pass this graph evaluates - and says so instead of writing a model
+        # pass this graph evaluates, and says so instead of writing a model
         # whose gradient operators no runtime implements.
         with pytest.raises(NotImplementedError, match="torch"):
             model.export_onnx(tmp_path, "derivative_export")
@@ -860,16 +863,14 @@ def test_derivative_export_onnx(tmp_path):
 
     model.export_onnx(tmp_path, "derivative_export")
     path = tmp_path / "derivative_export.onnx"
-    result = Modely.validate_onnx(str(path), inputs, return_dict=True)
+    result = Modely.run_onnx(str(path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
 
-@requires_onnx_export
-def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
-    """Only automatic differentiation constrains the export: the finite
-    difference is ordinary arithmetic, so the tw mode leaves the batch axis
-    exactly as the backend's exporter would."""
+def test_derivative_wrt_time_exports_as_ordinary_arithmetic():
+    """Only automatic differentiation records a backward pass: the finite
+    difference is ordinary arithmetic, which every backend exports."""
     v = Input("onnx_time_v", dim=1, tw=2)
     time_model = Modely(
         "derivative_time_onnx_model",
@@ -892,9 +893,7 @@ def test_derivative_wrt_time_needs_no_fixed_batch_to_export():
         time_model.export_onnx(folder, "derivative_time")
         path = f"{folder}/derivative_time.onnx"
         values = np.array([[[1.0], [2.0]]], dtype=np.float32)
-        result = Modely.validate_onnx(
-            str(path), {"onnx_time_v": values}, return_dict=True
-        )
+        result = Modely.run_onnx(str(path), {"onnx_time_v": values}, return_dict=True)
         np.testing.assert_allclose(
             result["dt"],  # type: ignore
             np.array([[[10.0], [10.0]]], dtype=np.float32),
@@ -922,7 +921,7 @@ def test_train_through_a_derivative():
 
     data = DataLoader(model, source={"dtrain_x": np.ones((16, 1), dtype=np.float32)})
     history = model.train(
-        train_data=data, epochs=40, batch_size=4, lr=0.1, printer=None, **CONVERGED
+        train_data=data, epochs=40, batch_size=4, lr=0.1, verbose=False, **CONVERGED
     )
 
     after = float(to_numpy(model({"dtrain_x": values})["dx"]).ravel()[0])
@@ -933,10 +932,10 @@ def test_train_through_a_derivative():
 
 def _build_pos_vel_integrators(name_suffix, dt, mass):
     """F=ma -> integrate once for velocity, again for position, entirely as
-    blocks of one model - no separate rate Modely, no state input needed.
+    blocks of one model: no separate rate Modely, no state input needed.
 
     A one-sample rate window is one integration step, so with init set to the
-    current state each IntegrateStep *is* the state update - no '+' around it.
+    current state each IntegrateStep *is* the state update, with no '+' around it.
     """
     force = Input(f"force_{name_suffix}", dim=1, tw=1)
     vel = Input(f"vel_{name_suffix}", dim=1, tw=1)
@@ -1064,7 +1063,7 @@ def test_integrate_trapezoidal_over_a_window():
 
 
 def test_integrate_over_arbitrary_layer_output():
-    """The rate is any Stream, not only a raw Input window - e.g. a relation
+    """The rate is any Stream, not only a raw Input window: e.g. a relation
     computed over one."""
     dt = 0.1
     v = Input("v", dim=1, tw=2)
@@ -1090,7 +1089,7 @@ def test_integrate_over_arbitrary_layer_output():
 def test_integrate_accepts_any_window_length():
     """The rule is a property of the quadrature, not of the window: no length
     is required, and over one sample the trapezoid averages the rate with the
-    one before the window - zero when it is not given, half the rectangle -
+    one before the window (zero when it is not given, half the rectangle),
     and is the rectangle when that rate is the same."""
     dt = 0.1
     v = Input("v", dim=1, tw=5)
@@ -1134,11 +1133,15 @@ def test_integrate_unknown_solver_raises():
             IntegrateStep(method=solver, dt=0.1)
 
 
-def test_integrate_requires_explicit_dt():
-    v = Input("v", dim=1, tw=1)
+def test_calculus_layers_default_dt_to_one():
+    assert IntegrateStep()._dt == 1.0
+    assert Integrate()._dt == 1.0
+    assert DerivativeStep()._dt == 1.0
+    assert Derivative()._dt == 1.0
 
-    with pytest.raises(ValueError, match="dt is required"):
-        IntegrateStep(method="euler")
+
+def test_integrate_with_explicit_dt():
+    v = Input("v", dim=1, tw=1)
 
     model = Modely(
         "integrate_explicit_dt_model",
@@ -1208,14 +1211,13 @@ def test_integrate_export_keras(tmp_path):
     )
 
 
-@requires_onnx_export
 def test_integrate_export_onnx(tmp_path):
     model, inputs = _integrate_export_model()
     expected = model(inputs)["integral"]
 
     model.export_onnx(tmp_path, "integrate_export")
     onnx_path = tmp_path / "integrate_export.onnx"
-    onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
+    onnx_result = Modely.run_onnx(str(onnx_path), inputs, return_dict=True)
     np.testing.assert_allclose(
         onnx_result["integral"],  # type: ignore
         to_numpy(expected),
@@ -1298,8 +1300,8 @@ def test_integrate_init_number():
 
 
 def test_integrate_init_stream_per_sample_of_the_batch():
-    """init is a Stream like any other - typically the state the window starts
-    from - so each trajectory of the batch integrates from its own."""
+    """init is a Stream like any other, typically the state the window starts
+    from, so each trajectory of the batch integrates from its own."""
     dt = 0.1
     rate = Input("cum_init_rate", dim=1, tw=4)
     state = Input("cum_init_state", dim=1, tw=1)
@@ -1385,7 +1387,7 @@ def test_integrate_init_broadcasts_a_scalar_over_dim():
 
 
 def test_integrate_step_init_returns_the_updated_state():
-    """The step form with init is the state update itself - the same graph the
+    """The step form with init is the state update itself: the same graph the
     caller used to write with '+'."""
     dt, mass = 0.1, 2.0
     force = Input("step_init_force", dim=1, tw=1)
@@ -1468,8 +1470,8 @@ def test_integrate_predicts_a_trajectory_in_one_pass():
 
 
 def test_integrate_with_init_inverts_the_derivative_exactly():
-    """The pair composes: both layers read init at the same instant - the
-    sample just before the window - so integrating a derivative back with the
+    """The pair composes: both layers read init at the same instant (the
+    sample just before the window), so integrating a derivative back with the
     initial condition it differenced against returns the signal itself."""
     dt = 0.1
     v = Input("inverse_v", dim=1, tw=5)
@@ -1513,7 +1515,7 @@ def test_integrate_init_validation():
 
 def test_integrate_init_save_load_round_trip(tmp_path):
     """The initial condition is a predecessor of the node, so it is rebuilt
-    with the graph - in both forms at once."""
+    with the graph, in both forms at once."""
     dt = 0.1
     rate = Input("init_save_rate", dim=1, tw=4)
     state = Input("init_save_state", dim=1, tw=1)
@@ -1593,14 +1595,13 @@ def test_integrate_init_export_keras(tmp_path):
         )
 
 
-@requires_onnx_export
 def test_integrate_init_export_onnx(tmp_path):
     model, inputs = _integrate_init_export_model()
     expected = {name: to_numpy(value) for name, value in model(inputs).items()}
 
     model.export_onnx(tmp_path, "integrate_init_export")
     onnx_path = tmp_path / "integrate_init_export.onnx"
-    onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
+    onnx_result = Modely.run_onnx(str(onnx_path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(onnx_result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
@@ -1613,7 +1614,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
 
     The rate is a constant w of the one trainable weight, so the trajectory is
     dt*w*i and the least-squares fit against a constant target c is known in
-    closed form - which checks that the gradient through the integral is
+    closed form, which checks that the gradient through the integral is
     right, not merely non-zero.
     """
     dt, steps, target_value = 0.1, 4, 0.5
@@ -1625,9 +1626,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     rate = Linear(features=1, bias=False)([u])
     trajectory = Output("trajectory", IntegrateStep(method="euler", dt=dt)(v0, rate))
 
-    model = Modely(
-        "integrate_train_model", inputs=[u, v0, target], outputs=[trajectory]
-    )
+    model = Modely("integrate_train_model", inputs=[u, v0], outputs=[trajectory])
     model.minimize("trajectory_error", source=trajectory, target=target)
     model.build()
 
@@ -1641,7 +1640,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
         },
     )
     history = model.train(
-        train_data=data, epochs=200, batch_size=8, lr=0.1, printer=None, **CONVERGED
+        train_data=data, epochs=200, batch_size=8, lr=0.1, verbose=False, **CONVERGED
     )
 
     # y[i] = dt*w*(i+1), so argmin_w sum_i (dt*w*(i+1) - c)^2 gives
@@ -1651,7 +1650,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
 
     assert history.losses["loss"][-1] < history.losses["loss"][0]
     np.testing.assert_allclose(
-        to_numpy(rate.kernel).ravel()[0], optimum, rtol=1e-2, atol=1e-2
+        to_numpy(rate.weights["kernel"].param).ravel()[0], optimum, rtol=1e-2, atol=1e-2
     )
     np.testing.assert_allclose(
         to_numpy(
@@ -1694,7 +1693,10 @@ def test_differentiate_has_the_shape_of_its_input():
     assert result.shape == (1, 5, 1)
     np.testing.assert_allclose(result[:, :2], 0.0, atol=1e-6)
     np.testing.assert_allclose(
-        result[:, 2:], to_numpy(fun.kernel).reshape(1, 3, 1), rtol=1e-5, atol=1e-5
+        result[:, 2:],
+        to_numpy(fun.weights["kernel"].param).reshape(1, 3, 1),
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 
@@ -1762,9 +1764,13 @@ def test_the_trapezoid_starts_from_the_rate_before_the_first_step(tmp_path):
     )
     x_next = x.feedback(IntegrateStep(method="trapezoidal", dt=1.0)(x, previous, u))
     previous.feedback(u)
-    by_hand = ModelyLoop(
-        "trap0_hand", inputs=[u, x, previous], outputs=[Output("trap0_hx", x_next)]
-    ).build()
+    by_hand = (
+        Modely(
+            "trap0_hand", inputs=[u, x, previous], outputs=[Output("trap0_hx", x_next)]
+        )
+        .loop()
+        .build()
+    )
     data = {
         "trap0_u": rates.reshape(1, 5, 1, 1),
         "trap0_x": np.full((1, 5, 1, 1), 10.0, np.float32),
@@ -1795,7 +1801,7 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
         "alike_der",
         "alike_buf",
     )
-    model = ModelyLoop(
+    model = Modely(
         "alike",
         inputs=[signal, scalar],
         outputs=[
@@ -1803,11 +1809,11 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
             Output("alike_d", derivative),
             Output("alike_b", window),
         ],
-    )
+    ).loop()
     hidden = {
         row["input"].name: row["input"].seq
         for row in model.inputs._rows
-        if not row["declared"]
+        if row["flags"] == "hidden"
     }
     assert hidden == {
         "alike_int_alike_s": (3,),

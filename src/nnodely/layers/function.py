@@ -1,5 +1,3 @@
-"""KerasFunction: a custom function, a Keras layer, as an nnodely layer."""
-
 from __future__ import annotations
 
 import weakref
@@ -253,7 +251,11 @@ class KerasFunction(Layer):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, function, name=None):
+    def __init__(
+        self,
+        function: keras.layers.Layer | type[keras.layers.Layer],
+        name: str | None = None,
+    ):
         if isinstance(function, dict):  # as a saved config holds it
             function = keras.saving.deserialize_keras_object(function)
         elif isinstance(function, type) and issubclass(function, keras.layers.Layer):
@@ -273,7 +275,7 @@ class KerasFunction(Layer):
         keras.saving.get_custom_objects()[
             keras.saving.get_registered_name(type(function))
         ] = type(function)
-        self._function = function
+        self._function: keras.layers.Layer = function
         super().__init__(name=name, function=function)
         # One Keras layer is one layer however many times it is wrapped: every
         # wrapper of an instance applies it, so they save and load as one.

@@ -1,7 +1,7 @@
 import sys
 
 from nnodely import Input, Output, Fir, Modely, Parameter, Constant
-from nnodely.core.dag import toposort
+from nnodely.core.dag import _toposort
 from nnodely.core.stream import Node
 from nnodely.layers.arithmetic import Multiply, Add
 
@@ -82,10 +82,10 @@ def test_toposort_is_depth_first_each_node_after_its_predecessors():
     b._preds = [a]
     c._preds = [a, b]
     d._preds = [c, b]
-    assert toposort([d, b]) == [a, b, c, d]
-    assert toposort([b, d]) == [a, b, c, d]
+    assert _toposort([d, b]) == [a, b, c, d]
+    assert _toposort([b, d]) == [a, b, c, d]
     e = Node("topo_e", preds=[b, a])
-    assert toposort([e, d]) == [a, b, e, c, d]
+    assert _toposort([e, d]) == [a, b, e, c, d]
 
 
 def test_a_graph_deeper_than_the_recursion_limit_is_sorted_and_flattened():

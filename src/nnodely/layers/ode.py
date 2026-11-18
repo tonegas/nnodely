@@ -1,15 +1,62 @@
-"""Ode - fixed-step integration of a derivative function."""
-
+from collections.abc import Callable
+from enum import StrEnum
 from functools import reduce
 from typing import Any
 
+from nnodely.core.stream import Stream
+
+
+class OdeMethod(StrEnum):
+    """The explicit Runge-Kutta method of :func:`Ode`.
+
+    A member is also the string of its value: ``OdeMethod.HEUN`` and
+    ``"heun"`` are the same ``method``.
+
+    Attributes
+    ----------
+    EULER
+        ``"euler"``: one stage, first order.
+    MIDPOINT
+        ``"midpoint"``: two stages, second order.
+    HEUN
+        ``"heun"``: two stages, second order.
+    RK4
+        ``"rk4"``: four stages, fourth order.
+
+    See Also
+    --------
+    Ode : One step of an ODE.
+    IntegrationMethod : The rules of :class:`IntegrateStep` and
+        :class:`Integrate`.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import OdeMethod
+    >>> OdeMethod.RK4 == "rk4"
+    True
+    >>> [method.value for method in OdeMethod]
+    ['euler', 'midpoint', 'heun', 'rk4']
+
+    .. versionadded:: 2.0
+    """
+
+    EULER = "euler"
+    MIDPOINT = "midpoint"
+    HEUN = "heun"
+    RK4 = "rk4"
+
+
 # Butcher tableaux as (stage coefficients, weights): one row of `a` per stage
-# after the first, then the `b` row. Adding an explicit method is one entry.
-TABLEAUX = {
-    "euler": ((), (1.0,)),
-    "midpoint": (((0.5,),), (0.0, 1.0)),
-    "heun": (((1.0,),), (0.5, 0.5)),
-    "rk4": (((0.5,), (0.0, 0.5), (0.0, 0.0, 1.0)), (1 / 6, 2 / 6, 2 / 6, 1 / 6)),
+# after the first, then the `b` row. Adding an explicit method is one member
+# of OdeMethod and one entry.
+_TABLEAUX = {
+    OdeMethod.EULER: ((), (1.0,)),
+    OdeMethod.MIDPOINT: (((0.5,),), (0.0, 1.0)),
+    OdeMethod.HEUN: (((1.0,),), (0.5, 0.5)),
+    OdeMethod.RK4: (
+        ((0.5,), (0.0, 0.5), (0.0, 0.0, 1.0)),
+        (1 / 6, 2 / 6, 2 / 6, 1 / 6),
+    ),
 }
 
 
@@ -36,7 +83,13 @@ def _weighted_sum(coefficients, stages, index):
     return reduce(lambda left, right: left + right, terms)
 
 
-def Ode(f, states, dt, method="rk4", args=()) -> Any:
+def Ode(
+    f: Callable[..., Any],
+    states: Stream | list[Stream],
+    dt: float | Stream,
+    method: OdeMethod | str = OdeMethod.RK4,
+    args: tuple = (),
+) -> Any:
     r"""The states one time step later, by an explicit Runge-Kutta method.
 
     Syntax
@@ -54,7 +107,7 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
     like any other: it trains, rolls out and exports.
 
     One call is one step. A trajectory is this step used as the body of a
-    :class:`Loop`, or inside a :class:`ModelyLoop`.
+    :class:`Loop`, or inside a model rolled out by :meth:`Modely.loop`.
 
     Parameters
     ----------
@@ -69,8 +122,8 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
     dt : float or Stream
         The time step. A stream, such as an Input or a :class:`Parameter`,
         reads it from data or learns it.
-    method : str, default "rk4"
-        The Runge-Kutta method:
+    method : OdeMethod or str, default OdeMethod.RK4
+        The Runge-Kutta method, a member of :class:`OdeMethod` or its string:
 
         * ``"euler"``: one stage, first order.
         * ``"midpoint"``: two stages, second order.
@@ -98,7 +151,7 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
     See Also
     --------
     Loop : The rollout of a one-step model.
-    ModelyLoop : A model declared one step at a time.
+    Modely.loop : The rollout of a model declared one step at a time.
     IntegrateStep : The running integral of a given rate.
     Integrate : The integral of a rate, one step at a time.
 
@@ -226,15 +279,18 @@ def Ode(f, states, dt, method="rk4", args=()) -> Any:
 
     .. versionadded:: 2.0
     """
-    if method not in TABLEAUX:
+    try:
+        method = OdeMethod(method)
+    except ValueError:
+        names = sorted(member.value for member in OdeMethod)
         raise ValueError(
-            f"Ode method {method!r} is not available; choose one of {sorted(TABLEAUX)}."
-        )
+            f"Ode method {method!r} is not available; choose one of {names}."
+        ) from None
 
     single_state = not isinstance(states, (list, tuple))
     states = [states] if single_state else list(states)
 
-    stage_coefficients, weights = TABLEAUX[method]
+    stage_coefficients, weights = _TABLEAUX[method]
     stages = [_derivatives(f, states, args)]
     for coefficients in stage_coefficients:
         stage = [

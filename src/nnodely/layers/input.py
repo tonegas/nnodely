@@ -1,9 +1,8 @@
-"""Input: a signal read from data, a root of the graph."""
-
 from numbers import Integral
 from typing import Any
 
 from nnodely.core.dag import Table
+from nnodely.core.layer import Layer
 from nnodely.core.shape import _same_steps
 from nnodely.core.stream import Stream
 from nnodely.utils.printers import _table
@@ -12,7 +11,7 @@ import keras
 
 
 def _positive_sizes(sizes) -> tuple[int, ...] | None:
-    """``sizes`` - an int, or a list or tuple of them - as a tuple of ints;
+    """``sizes`` (an int, or a list or tuple of them) as a tuple of ints;
     None unless each is at least 1."""
     items = (
         (sizes,)
@@ -78,7 +77,7 @@ def _window(name: str, tw) -> tuple[int, int] | None:
 
 
 def _validate_init(owner: str, init, name: str = "init"):
-    """The value before the first step, as configured - a Stream, a number or None."""
+    """The value before the first step, as configured: a Stream, a number or None."""
     if init is None or isinstance(init, Stream):
         return init
     if isinstance(init, bool) or not isinstance(init, (int, float)):
@@ -91,9 +90,9 @@ def _validate_init(owner: str, init, name: str = "init"):
 
 def _check_history(owner: str, init, signal, past: int, name: str = "init") -> None:
     """Refuse ``init``, the samples before the first one ``owner`` reads of
-    ``signal``, unless it holds one sample - repeated when ``past`` are read -
-    or ``past`` of them, oldest first, along its window: a value without a
-    window - a number, a Parameter, a Constant - is one sample. Its dim is a
+    ``signal``, unless it holds one sample (repeated when ``past`` are read)
+    or ``past`` of them, oldest first, along its window. A value without a
+    window (a number, a Parameter, a Constant) is one sample. Its dim is a
     scalar or the signal's, its sequence none or the signal's, a dynamic axis
     matching any length.
 
@@ -153,6 +152,9 @@ class Input(Stream):
     ``x.feedback(stream)``
         Feeds ``stream`` back into the Input ``x`` at the next step of a
         rollout.
+    ``x.feedback(stream, init=x0, hidden=True)``
+        The same, ``x`` a hidden state: the model's own memory, which starts
+        from ``x0`` and is none of its inputs.
 
     An Input is a stream. The data feeds it, and the layers that read it take
     what they need of its window. The data of an Input is keyed by its name:
@@ -230,7 +232,7 @@ class Input(Stream):
     Parameter : A trainable value.
     DataLoader : Cuts recorded signals into samples of the Inputs.
     TimeSelect : One sample of a window.
-    ModelyLoop : A model declared one step at a time, with fed-back Inputs.
+    Modely.loop : The rollout of a model declared one step at a time.
 
     Notes
     -----
@@ -251,7 +253,7 @@ class Input(Stream):
 
     >>> import keras
     >>> import numpy as np
-    >>> from nnodely import Input, Modely, ModelyLoop, Output, TimeSelect
+    >>> from nnodely import Input, Modely, Output, TimeSelect
     >>> x = Input("x", tw=3)
     >>> x.shape
     Shape(S=(), T=3, D=(1,))
@@ -314,7 +316,7 @@ class Input(Stream):
 
     >>> count = Input("count", tw=1)
     >>> count_next = count.feedback(count + 1.0)
-    >>> counter = ModelyLoop("counter", inputs=[count], outputs=[Output("c", count_next)], seq=3)
+    >>> counter = Modely("counter", inputs=[count], outputs=[Output("c", count_next)]).loop(seq=3)
     >>> result = counter.build()({"count": np.full((1, 3, 1, 1), 10.0)})
     >>> keras.ops.convert_to_numpy(result["c"])[0, :, 0, 0]
     array([11., 12., 13.], dtype=float32)
@@ -384,16 +386,27 @@ class Input(Stream):
         self._input = keras.Input(shape=self.shape.tuple, name=self.name)
         # Set by feedback(): the stream fed back. None while the Input is read
         # from data.
-        self.update: Stream | None = None
+        self._update: Stream | None = None
         # The value before the first step, given with the feedback: only a
         # layer that keeps its state in the Input has one of its own.
-        self.init: Stream | float | None = None
-        # Set by a layer that keeps its state in the Input - Integrate,
-        # Derivative, Buffer - so the user has no handle on it: a Modely that
-        # does not declare it reads its init in its place, not data.
+        self._init: Stream | float | None = None
+        # A hidden state: the model's own memory, never one of its inputs. Set
+        # by feedback(hidden=True), or by a layer that keeps its state in the
+        # Input (Integrate, Derivative, Buffer). A Modely that does not declare
+        # it (only the body of a Loop does) reads its init in its place, not
+        # data.
         self._hidden = False
+        # Hidden by the user, feedback(hidden=True): it keeps the name the user
+        # gave it, where the state of a layer yields its own.
+        self._hidden_by_user = False
 
-    def feedback(self, stream: Stream) -> Stream:
+    def feedback(
+        self,
+        stream: Stream,
+        *,
+        init: Stream | float | None = None,
+        hidden: bool = False,
+    ) -> Stream:
         """Feed ``stream`` back into this Input at the next step of a rollout,
         and return ``stream``.
 
@@ -402,26 +415,40 @@ class Input(Stream):
         as the newest sample. Inside a step, the Input holds the value at the
         end of the previous step.
 
-        Nothing rolls out until a :class:`Loop` or a :class:`ModelyLoop`
+        Nothing rolls out until a :class:`Loop` or :meth:`Modely.loop`
         applies the feedback. Every fed-back Input the model reads, also
         inside the models it calls, is fed back by the same rollout. Built as
-        a :class:`Modely` instead, the graph is the one-step model, and the
-        Input is read from data. The model then warns unless the Input is
-        among its declared inputs.
+        a :class:`Modely` instead, the graph is the one-step model.
 
-        The value before the first step is given where the feedback is
-        applied:
+        A fed-back Input is a state, of one of two kinds:
 
-        - ``Loop(init={x: x0})``;
-        - in a ModelyLoop, the first window of the data of the Input, when it
-          is among the inputs;
-        - zero otherwise.
+        - declared among the inputs of the model that reads it: an input,
+          given by the data or by the model's caller. A Modely reads it from
+          data at every step. A Loop starts it from its ``init``,
+          ``Loop(init={x: x0})``; a rollout of loop() from the first window of its
+          data, zero where the data leaves it out; a block from the stream its
+          caller gives it.
+        - hidden, ``hidden=True``: the model's own memory, as the state of an
+          :class:`Integrate`. It is never an input, and cannot be declared. It
+          starts from ``init``, zero without one, in every rollout (once per
+          call of the model that holds it), and a Modely reads ``init`` in its
+          place at every step.
 
         Parameters
         ----------
         stream : Stream
             The value of one step: the dim and the sequence of the Input,
             ``T=1``, or no window for an Input without one.
+        init : Stream, float or None, default None
+            The value of a hidden state before the first step: a number, a
+            :class:`Parameter` (a trainable initial state), a
+            :class:`Constant`, or a declared Input, whose first step is read.
+            It holds one sample, repeated over the window, or the whole
+            window, oldest first; its dim is a scalar or the Input's. Only a
+            hidden state takes one. ``None`` is zero.
+        hidden : bool, default False
+            Whether the Input is a hidden state, the model's own memory.
+            ``False``: the model that reads it declares it.
 
         Returns
         -------
@@ -434,14 +461,17 @@ class Input(Stream):
         ValueError
             If ``stream`` is not one sample of the Input ("fed back with the
             value of one step"), if the Input reads future samples ("reads
-            future samples"), or if it is already fed back ("is already fed
-            back").
+            future samples"), if it is already fed back ("is already fed
+            back"), if ``init`` is given to a state that is not hidden ("only
+            a hidden state"), or if ``init`` holds another number of samples,
+            features or sequence ("init holds the samples before the first").
         TypeError
-            If ``stream`` is not a stream ("is fed back with a Stream").
+            If ``stream`` is not a stream ("is fed back with a Stream"), or if
+            ``init`` is not a stream, a number or None.
 
         See Also
         --------
-        ModelyLoop : A model declared one step at a time.
+        Modely.loop : The rollout of a model declared one step at a time.
         Loop : Rolls a model out along the outermost sequence axis.
         IntegrateStep : One step of an integrator, often fed back.
 
@@ -451,10 +481,10 @@ class Input(Stream):
 
         >>> import keras
         >>> import numpy as np
-        >>> from nnodely import Input, ModelyLoop, Output, TimeSelect
+        >>> from nnodely import Input, Modely, Output, TimeSelect
         >>> count = Input("count", tw=1)
         >>> count_next = count.feedback(count + 1.0)
-        >>> counter = ModelyLoop("counter", inputs=[count], outputs=[Output("c", count_next)], seq=3)
+        >>> counter = Modely("counter", inputs=[count], outputs=[Output("c", count_next)]).loop(seq=3)
         >>> result = counter.build()({"count": np.full((1, 3, 1, 1), 10.0)})
         >>> keras.ops.convert_to_numpy(result["c"])[0, :, 0, 0]
         array([11., 12., 13.], dtype=float32)
@@ -468,8 +498,30 @@ class Input(Stream):
         ValueError: Input 'x' is fed back with the value of one step, Shape(S=(), T=1, D=(1,)); ...
         >>> x.feedback(TimeSelect(-1)(x) + 1.0).shape
         Shape(S=(), T=1, D=(1,))
+
+        A hidden state is the model's own: it starts from ``init``, and the
+        model does not declare it:
+
+        >>> total, u = Input("total", tw=1), Input("u", tw=1)
+        >>> total_next = total.feedback(total + u, init=10.0, hidden=True)
+        >>> summer = Modely("summer", inputs=[u], outputs=[Output("s", total_next)]).loop(seq=3)
+        >>> result = summer.build()({"u": np.ones((1, 3, 1, 1))})
+        >>> keras.ops.convert_to_numpy(result["s"])[0, :, 0, 0]
+        array([11., 12., 13.], dtype=float32)
         """
-        return self._feed_back(stream)
+        if init is not None and not hidden:
+            raise ValueError(
+                f"Input {self.name!r}: only a hidden state takes an init, "
+                "x.feedback(stream, init=..., hidden=True). A declared state "
+                "starts from its data, or from the stream the caller of its "
+                "model gives it."
+            )
+        if isinstance(init, Stream):
+            _check_history(f"Input {self.name!r}", init, self, self.past)
+        self._feed_back(stream, init=init)
+        if hidden:
+            self._hidden = self._hidden_by_user = True
+        return stream
 
     def _feed_back(self, stream: Stream, init: Stream | float | None = None) -> Stream:
         """:meth:`feedback`, with the value before the first step: how a layer
@@ -485,9 +537,9 @@ class Input(Stream):
                 f"Input {self.name!r} is fed back with a Stream, got "
                 f"{type(stream).__name__}."
             )
-        if self.update is not None:
+        if self._update is not None:
             raise ValueError(
-                f"Input {self.name!r} is already fed back with {self.update.name!r}."
+                f"Input {self.name!r} is already fed back with {self._update.name!r}."
             )
         # One sample of the Input, or no window for an Input without one.
         sample = self.shape.replace(tw=None if self.tw is None else 1)
@@ -500,8 +552,8 @@ class Input(Stream):
                 f"Input {self.name!r} is fed back with the value of one step, "
                 f"{sample}; {stream.name!r} is {stream.shape}."
             )
-        self.init = _validate_init(self.name, init)
-        self.update = stream
+        self._init = _validate_init(self.name, init)
+        self._update = stream
         return stream
 
     def get_config(self):
@@ -514,6 +566,39 @@ class Input(Stream):
             }
         )
         return config
+
+
+@keras.saving.register_keras_serializable(package="nnodely")
+class _HiddenInitImpl(keras.layers.Layer):
+    """The init of a hidden state, ``(batch, ...)``, broadcast to the shape of
+    the state, ``shape``, as a loop starts the state from it."""
+
+    def __init__(self, shape, name=None, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.state_shape = tuple(shape)
+
+    def call(self, init):
+        from nnodely.layers.loop import LoopImpl
+
+        return LoopImpl._align_to_shape(init, self.state_shape)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"shape": self.state_shape})
+        return config
+
+
+class _HiddenInit(Layer):
+    """The init of the hidden state ``state``, which a Modely reads in its
+    place, with the shape of the state: the layers that read the state were
+    declared on that shape, and a number, a Constant or one sample of an Input
+    has fewer axes."""
+
+    def output_shape(self, *inputs):
+        return self._properties["state"]
+
+    def build_layer(self):
+        return _HiddenInitImpl(self._properties["state"].tuple, name=self.name)
 
 
 def _seq_cell(seq) -> str:
@@ -535,28 +620,23 @@ class Inputs(Table):
     It is a list of the Input objects. Pick one by its name,
     ``inputs["x"]``, or by its index, ``inputs[0]``: the ``idx`` column of
     the table. Printed, it is a table of their shapes and of how each is
-    fed: whether it is declared, the stream it is fed back with, what the
-    data must hold of it and, fed back by a Loop, what it starts from."""
+    fed: its flags (``required``, ``optional``, ``target`` or ``hidden``),
+    where its value comes from and, fed back, the stream it reads at the
+    next step and what it starts from."""
 
-    _HEADER = (
-        "input",
-        "seq",
-        "tw",
-        "dim",
-        "declared",
-        "fed back with",
-        "data",
-        "starts from",
-    )
+    _HEADER = ("input", "seq", "tw", "dim", "flags", "update")
 
     _kind, _attr = "Input", "inputs"
 
-    def __init__(self, rows: list[dict]):
-        super().__init__(row["input"] for row in rows)
-        self._rows = rows
+    _rows: list[dict]
+
+    def __new__(cls, rows: list[dict]):
+        table = super().__new__(cls, (row["input"] for row in rows))
+        table._rows = rows
+        return table
 
     def _where(self, index, item) -> str:
-        return "(declared)" if self._rows[index]["declared"] else "(not declared)"
+        return f"({self._rows[index]['flags']})"
 
     def __str__(self):
         cells = [
@@ -565,10 +645,8 @@ class Inputs(Table):
                 _seq_cell(row["seq"]),
                 _tw_cell(row["input"]),
                 str(tuple(row["input"].dim)),
-                "yes" if row["declared"] else "no",
-                row["fed back with"] or "-",
-                row["data"] or "-",
-                row["starts from"] or "-",
+                row["flags"],
+                row["update"],
             )
             for row in self._rows
         ]

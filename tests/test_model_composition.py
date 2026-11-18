@@ -22,9 +22,9 @@ def test_model_composition():
     y = Input("y", dim=1, tw=10)
 
     # Pinned: the body's weights have to survive being inlined, which is the
-    # whole point of calling a built model. The biases start at zero.
+    # whole point of calling a built model. The biases are zero.
     result_taps = Parameter("result_taps", value=np.ones((10, 2)))
-    result_fir = Fir(features=2, kernel=result_taps)([x + y])
+    result_fir = Fir(features=2, kernel=result_taps, bias="zeros")([x + y])
     x_out = Output("x_pred", result_fir)
 
     model1 = Modely("model1", inputs=[x, y], outputs=[x_out])
@@ -32,7 +32,7 @@ def test_model_composition():
 
     z = Input("z", dim=1, tw=10)
     z_taps = Parameter("z_taps", value=np.ones(2))
-    z_fir = Fir(features=1, kernel=z_taps)([model1([z, z])])
+    z_fir = Fir(features=1, kernel=z_taps, bias="zeros")([model1([z, z])])
     z_out = Output("z_pred", z_fir)
 
     model2 = Modely("composed_model", inputs=[z], outputs=[z_out])
@@ -248,14 +248,14 @@ def test_model_saving_loading_and_compose(tmp_path):
 
 def test_composition_shares_the_body_weights():
     """A model used as a block keeps its parameters: composing shares them
-    rather than re-initializing, so weights set - or loaded - before the
+    rather than re-initializing, so weights set (or loaded) before the
     composition are the ones the composed graph runs with."""
     u = Input("share_u", dim=1, tw=2)
     body_fir = Fir(features=1, bias=False)([u])
     body = Modely(
         "share_body", inputs=[u], outputs=[Output("share_out", body_fir)]
     ).build()
-    body_fir.kernel.assign(np.array([[1.0], [10.0]], dtype=np.float32))
+    body_fir.weights["kernel"].param.assign(np.array([[1.0], [10.0]], dtype=np.float32))
 
     z = Input("share_z", dim=1, tw=2)
     composed = Modely(
@@ -270,7 +270,7 @@ def test_composition_shares_the_body_weights():
         atol=1e-5,
     )
 
-    # Not a copy of the values - the same variable, so the two graphs cannot
+    # Not a copy of the values: the same variable, so the two graphs cannot
     # drift apart.
     assert body._keras_model is not None and composed._keras_model is not None
     assert (
@@ -278,7 +278,9 @@ def test_composition_shares_the_body_weights():
         is composed._keras_model.trainable_variables[0]
     )
     # And the block's own node still reaches it, so it stays inspectable.
-    assert body_fir.kernel is composed._keras_model.trainable_variables[0]
+    assert (
+        body_fir.weights["kernel"].param is composed._keras_model.trainable_variables[0]
+    )
 
 
 def test_training_a_composed_model_trains_the_block():
@@ -300,9 +302,9 @@ def test_training_a_composed_model_trains_the_block():
     data = DataLoader(composed, source={"train_z": np.ones((8, 1), dtype=np.float32)})
     # No early stopping: at this learning rate the loss oscillates on its way
     # down, and stopping at a low point of the swing leaves the weight off 3.
-    composed.train(train_data=data, epochs=40, batch_size=4, lr=0.2, printer=None)
+    composed.train(train_data=data, epochs=40, batch_size=4, lr=0.2, verbose=False)
 
-    trained = float(to_numpy(body_fir.kernel).ravel()[0])
+    trained = float(to_numpy(body_fir.weights["kernel"].param).ravel()[0])
     assert trained == pytest.approx(3.0, abs=0.1)
     # The block, evaluated on its own, now carries what the composition learnt.
     np.testing.assert_allclose(
@@ -337,7 +339,7 @@ def test_composition_shares_parameters_and_constants():
         atol=1e-5,
     )
 
-    assert gain.param is not None and offset.constant is not None
+    assert gain.param is not None and offset.value is not None
     gain.param.assign(np.full((1,), 10.0, dtype=np.float32))
     np.testing.assert_allclose(
         to_numpy(composed({"pc_z": np.full((1, 1, 1), 2.0, dtype=np.float32)})["o"]),
@@ -350,7 +352,7 @@ def test_composition_shares_parameters_and_constants():
 def test_composition_rebuilds_layers_that_read_their_predecessor():
     """Only stored state travels. A layer configured from its predecessor is
     rebuilt where it now sits: a block that reads the last sample of its input
-    reads the last sample of the stream it is called with - which has the
+    reads the last sample of the stream it is called with, which has the
     shape the block reads, a wider window being refused."""
     u = Input("ctx_u", dim=1, tw=1)
     body = Modely("ctx_body", inputs=[u], outputs=[Output("ctx_out", u * 1.0)]).build()
@@ -377,7 +379,7 @@ def test_rebuilding_a_model_keeps_its_weights():
     u = Input("rebuild_u", dim=1, tw=1)
     fir = Fir(features=1, bias=False)([u])
     model = Modely("rebuild_model", inputs=[u], outputs=[Output("o", fir)]).build()
-    fir.kernel.assign(np.full((1, 1), 7.0, dtype=np.float32))
+    fir.weights["kernel"].param.assign(np.full((1, 1), 7.0, dtype=np.float32))
 
     model.build()
 
@@ -392,7 +394,7 @@ def test_rebuilding_a_model_keeps_its_weights():
 def test_building_without_keeping_the_weights_initializes_every_one():
     """build(keep_weights=False) gives every weight its initial value again:
     a Parameter the value it was declared with, a layer's weight a new draw,
-    the statistics of a BatchNorm mean 0 and variance 1 - frozen ones too."""
+    the statistics of a BatchNorm mean 0 and variance 1, frozen ones too."""
     u = Input("reinit_u", dim=2, tw=3)
     gain = Parameter("reinit_gain", value=[2.0]).freeze()
     filtered = Fir(features=1, name="reinit_fir")([u]) * gain
@@ -508,11 +510,11 @@ def test_a_block_on_a_dynamic_sequence_keeps_its_weights_on_a_fixed_one(layer):
 def test_composition_rejects_a_block_whose_input_shape_changes():
     """Weights fit the shape they were made for, and they are Parameters of
     the block's graph: a block called with an input of a different shape
-    cannot use them - and its own weights are left alone."""
+    cannot use them, and its own weights are left alone."""
     u = Input("fit_u", dim=1, tw=1)
     body_fir = Fir(features=1, bias=False)([u])
     body = Modely("fit_body", inputs=[u], outputs=[Output("fit_out", body_fir)]).build()
-    body_fir.kernel.assign(np.full((1, 1), 5.0, dtype=np.float32))
+    body_fir.weights["kernel"].param.assign(np.full((1, 1), 5.0, dtype=np.float32))
 
     # Three features where the block was built for one: the call is refused.
     wide = Input("fit_wide", dim=3, tw=1)
@@ -643,9 +645,12 @@ def test_layers_created_apart_have_their_own_weights_whatever_their_names(tmp_pa
             Output("twins_shared", shared([x]) + shared([x])),
         ],
     ).build()
-    assert first.kernel is not None and second.kernel is not None
-    first.kernel.assign(np.full((2, 1), 1.0, dtype=np.float32))
-    second.kernel.assign(np.full((2, 1), 3.0, dtype=np.float32))
+    assert (
+        first.weights["kernel"].param is not None
+        and second.weights["kernel"].param is not None
+    )
+    first.weights["kernel"].param.assign(np.full((2, 1), 1.0, dtype=np.float32))
+    second.weights["kernel"].param.assign(np.full((2, 1), 3.0, dtype=np.float32))
 
     assert model._keras_inference_model is not None
     keras_names = [layer.name for layer in model._keras_inference_model.layers]
@@ -750,9 +755,13 @@ def test_model_augmentation(tmp_path):
 
     ## Train the model
     train_data = DataLoader(train_model, source={"tr_x": xs, "tr_y": ys_true})
-    train_model.train(train_data, epochs=60, batch_size=32, lr=0.05, printer=None)
-    np.testing.assert_allclose(to_numpy(filtered.kernel), [[0.5], [2.0]], atol=1e-3)
-    np.testing.assert_allclose(to_numpy(filtered.bias), [-1.0], atol=1e-3)
+    train_model.train(train_data, epochs=60, batch_size=32, lr=0.05, verbose=False)
+    np.testing.assert_allclose(
+        to_numpy(filtered.weights["kernel"].param), [[0.5], [2.0]], atol=1e-3
+    )
+    np.testing.assert_allclose(
+        to_numpy(filtered.weights["bias"].param), [-1.0], atol=1e-3
+    )
 
     ## Save the nnodely model with trained weights
     train_model.save(path=tmp_path / "augmented_model.nnodely")

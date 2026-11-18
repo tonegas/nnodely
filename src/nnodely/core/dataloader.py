@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from enum import StrEnum
 from pathlib import Path
 from typing import (
     Any,
@@ -17,11 +18,9 @@ import numpy as np
 import pandas as pd
 
 from nnodely.core.shape import OUTER_AXIS, slice_axis
-from nnodely.core.stream import object_repr
+from nnodely.core.stream import _object_repr
 from nnodely.layers.input import Input, _seq_cell, _tw_cell
 from nnodely.utils.printers import _table
-
-sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
 #: A dict keyed by Input, by input name, or by both: three types, since a
 #: dict of names alone is not a dict of ``Input | str`` keys to a checker.
@@ -36,6 +35,39 @@ Columns: TypeAlias = str | int | Sequence[str | int]
 InputFormat: TypeAlias = (
     Mapping[str, Columns] | Mapping[Input, Columns] | Mapping[Input | str, Columns]
 )
+
+
+class OnShort(StrEnum):
+    """What :class:`DataLoader` does with a simulation too short to give one
+    sample, ``on_short=``.
+
+    A member is also the string of its value: ``OnShort.SKIP`` and ``"skip"``
+    are the same.
+
+    Attributes
+    ----------
+    ERROR
+        ``"error"``: raise ``ValueError``, naming the simulation.
+    SKIP
+        ``"skip"``: leave the simulation out.
+
+    See Also
+    --------
+    DataLoader : The data of a model, laid out for training.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import OnShort
+    >>> OnShort.SKIP == "skip"
+    True
+    >>> [choice.value for choice in OnShort]
+    ['error', 'skip']
+
+    .. versionadded:: 2.0
+    """
+
+    ERROR = "error"
+    SKIP = "skip"
 
 
 class DataLoader:
@@ -91,9 +123,9 @@ class DataLoader:
         Input or by input name. Each is a column name, a column index, or a
         list of them, one per feature. By default an Input reads the column
         of its name.
-    csv_glob : str, optional
-        The pattern of the files read from a folder. The default,
-        ``"*.csv"``, reads every CSV file.
+    csv_glob : str, default ``"*.csv"``
+        The pattern of the files read from a folder. The default reads every
+        CSV file.
     delimiter : str, default ","
         The separator of the CSV files, the ``sep`` of ``pandas.read_csv``.
     header : int, list of int, "infer" or None, default "infer"
@@ -112,8 +144,9 @@ class DataLoader:
     step : int, default 1
         The samples between the current samples of two consecutive samples,
         at least 1. ``step=10`` keeps one sample in ten.
-    on_short : {"error", "skip"}, default "error"
-        What happens to a simulation too short to give one sample:
+    on_short : OnShort or str, default OnShort.ERROR
+        What happens to a simulation too short to give one sample, a member
+        of :class:`OnShort` or its string:
 
         - ``"error"`` raises ``ValueError``;
         - ``"skip"`` leaves it out.
@@ -129,7 +162,7 @@ class DataLoader:
         A boolean array, or ``None`` when nothing is padded. It marks which
         steps of the outermost sequence axis are real, ``True``, and which
         are padding, ``False``: one row per sample, one column per step.
-        Training and validation leave the padded steps out.
+        Training and validation leave the padded steps out. Read only.
 
     Raises
     ------
@@ -159,7 +192,7 @@ class DataLoader:
     Input : Declares the window and the sequence of a signal.
     Modely.train : Trains a model on a loader.
     Modely.validate : Measures a model on a loader.
-    ModelyLoop : A model whose Inputs carry a dynamic sequence.
+    Modely.loop : A rollout, whose Inputs carry a dynamic sequence.
 
     Notes
     -----
@@ -196,8 +229,8 @@ class DataLoader:
     **Missing values.** A cell pandas reads as missing (empty, ``n/a``,
     ``NaN``) stays a NaN, and the loader warns about it.
 
-    An Input that a :class:`ModelyLoop` feeds back and lists among its
-    inputs may be left out of the data: it then reads zeros.
+    An Input that the rollout of :meth:`Modely.loop` feeds back and lists
+    among its inputs may be left out of the data: it then reads zeros.
 
     Basic Examples
     --------------
@@ -405,7 +438,7 @@ class DataLoader:
         dtype: Any = np.float32,
         seq_length: int | Literal["full"] | None = None,
         step: int = 1,
-        on_short: Literal["error", "skip"] = "error",
+        on_short: OnShort | str = OnShort.ERROR,
         windowed: bool = False,
     ):
         if step < 1:
@@ -435,7 +468,12 @@ class DataLoader:
         self._dtype = dtype
         self._seq_length = seq_length
         self._step = step
-        self._on_short = on_short
+        try:
+            self._on_short = OnShort(on_short)
+        except ValueError:
+            raise ValueError(
+                f"DataLoader: on_short is 'error' or 'skip', got {on_short!r}."
+            ) from None
         self._windowed = windowed
 
         if model._keras_model is None:
@@ -469,29 +507,22 @@ class DataLoader:
             for node, sequence in self._sequence_specs.items()
             if any(length is None for length in sequence)
         }
-        self.mask: np.ndarray | None = None
+        self._mask: np.ndarray | None = None
         if windowed:
             dataset = self._build_windowed(self._read_windowed(source))
         else:
             dataset = self._build(self._read(source))
         # Keyed by name only here, where the data meets Keras.
         self._dataset = {node.name: values for node, values in dataset.items()}
-        if self.mask is not None:
+        if self._mask is not None:
+            self._mask.flags.writeable = False
             self._warn_uncollected_loops()
 
         self._num_steps = min(len(values) for values in self._dataset.values())
 
     @property
-    def inputs(self) -> List[str]:
-        """The names of the Inputs the samples hold, in the order of the
-        model.
-
-        Returns
-        -------
-        list of str
-            The keys of every sample and of :meth:`as_dict`.
-        """
-        return list(self._dataset.keys())
+    def mask(self) -> np.ndarray | None:
+        return self._mask
 
     def _source_text(self) -> str:
         """Where the samples came from: memory, or how many files."""
@@ -500,12 +531,12 @@ class DataLoader:
         return f"{self._num_files} file{'' if self._num_files == 1 else 's'}"
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             model=self._model,
             samples=len(self),
             source=self._source_text(),
-            inputs=self.inputs,
+            inputs=list(self._dataset),
         )
 
     def __str__(self) -> str:
@@ -572,44 +603,18 @@ class DataLoader:
             raise KeyError(
                 f"The dataset holds no data of the Input "
                 f"{getattr(key, 'name', key)!r}: "
-                f"its inputs are {self.inputs}."
+                f"its inputs are {list(self._dataset)}."
             )
         return self._dataset[node.name]
 
-    def get_step(self, idx: int) -> Dict[str, Any]:
-        """Return the sample ``idx``, the same as ``loader[idx]``.
-
-        Parameters
-        ----------
-        idx : int
-            The index of the sample, from 0 to ``len(loader) - 1``. Samples
-            are counted across the simulations, in reading order.
-
-        Returns
-        -------
-        dict of str to numpy.ndarray
-            ``{name: array}``, each array ``(*S, T, *D)``, without the batch
-            axis. Add it, ``v[None]``, before calling a model.
-
-        Raises
-        ------
-        IndexError
-            If ``idx`` is out of range ("idx out of range").
-
-        See Also
-        --------
-        DataLoader.get_samples : Samples with the batch axis.
-        """
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx] for k, v in self._dataset.items()}
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        return self.get_step(idx)
-
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for i in range(self._num_steps):
-            yield self.get_step(i)
+            yield self[i]
 
     def get_samples(
         self, n: int, start: int = 0, simulation: int | str = 0
@@ -653,7 +658,6 @@ class DataLoader:
         See Also
         --------
         DataLoader.as_dict : Every sample.
-        DataLoader.get_step : One sample, without the batch axis.
 
         Examples
         --------
@@ -971,7 +975,7 @@ class DataLoader:
     @staticmethod
     def _warn_missing(name: str, values: np.ndarray, label: str) -> None:
         """Warn about the n/a values of an input, which are kept."""
-        # A cell pandas reads as n/a - empty, "n/a", "NaN" - stays a NaN, and a
+        # A cell pandas reads as n/a (empty, "n/a", "NaN") stays a NaN, and a
         # NaN reaching a minimizer turns its loss, and every weight it trains,
         # into NaN.
         missing = int(np.isnan(values).sum())
@@ -1138,7 +1142,7 @@ class DataLoader:
         for label, simulation in simulations:
             samples = next(iter(simulation.values())).shape[0]
             if samples < required:
-                if self._on_short == "skip":
+                if self._on_short is OnShort.SKIP:
                     skipped.append(label)
                     continue
                 raise ValueError(
@@ -1188,7 +1192,7 @@ class DataLoader:
             widest = max(lengths)
             for node in self._dynamic_inputs:
                 chunks[node] = [self._pad(values, widest) for values in chunks[node]]
-            self.mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
+            self._mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
 
         return {
             node: np.concatenate(windows, axis=0) for node, windows in chunks.items()
@@ -1211,7 +1215,7 @@ class DataLoader:
                         f"Input '{node.name}' is {values.shape[1:]} per sample in "
                         f"'{label}', but {first[node].shape[1:]} in '{first_label}': "
                         "only the outermost dynamic sequence axis, the rollout, may "
-                        "differ between simulations - it is padded and masked - so "
+                        "differ between simulations (it is padded and masked), so "
                         "every other length must match."
                     )
 
@@ -1235,7 +1239,7 @@ class DataLoader:
             for node in rolled:
                 chunks[node] = [self._pad(values, widest) for values in chunks[node]]
             # One row per sample: every sample of a simulation has its rollout.
-            self.mask = np.repeat(
+            self._mask = np.repeat(
                 np.arange(widest) < np.asarray(rollouts)[:, np.newaxis],
                 counts,
                 axis=0,
@@ -1299,7 +1303,9 @@ class DataLoader:
         # Window i covers values[i:i + width] and ends on sample i + past - 1,
         # so the shared range of end samples selects the windows to keep. An
         # Input without a window is the one sample, without the window axis.
-        windows = sliding_window_view(values, window_shape=width, axis=0)
+        windows = np.lib.stride_tricks.sliding_window_view(
+            values, window_shape=width, axis=0
+        )
         windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
         if node.shape.tw is None:
             windows = windows[:, 0]
@@ -1307,7 +1313,9 @@ class DataLoader:
         # Each sliding window appends its axis; moved right after the samples it
         # becomes the outermost axis, so the innermost outer axis comes first.
         for length in reversed(sequence):
-            windows = sliding_window_view(windows, window_shape=length, axis=0)
+            windows = np.lib.stride_tricks.sliding_window_view(
+                windows, window_shape=length, axis=0
+            )
             windows = np.moveaxis(windows, -1, 1)
 
         # A sequence window is aligned to its final temporal sample. Inputs with

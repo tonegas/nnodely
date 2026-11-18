@@ -1,20 +1,23 @@
-"""Fuzzify, and the membership functions it places on its centers."""
-
 from __future__ import annotations
 
 import inspect
-from typing import Any, cast
+from collections.abc import Sequence
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, cast
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import next_name
+from nnodely.core.dag import _next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank
-from nnodely.core.stream import Stream, class_path, registered_class
+from nnodely.core.stream import Stream, _class_path, _registered_class
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.input import Input
-from nnodely.layers.parameter import _Value
+from nnodely.layers.parameter import Parameter, _Value
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 _EPS = 1e-7
 
@@ -76,8 +79,8 @@ class BumpImpl(keras.layers.Layer):
 class _Bump(Layer):
     """An elementwise function of ``x``, 1 at 0 and fading away from it,
     shaped by a width: a number, a ``(left, right)`` pair where the class
-    allows one, or a :class:`Parameter` - trained with the model, a
-    predecessor of the layer read with ``x``."""
+    allows one, or a :class:`Parameter`. A Parameter is trained with the
+    model, a predecessor of the layer read with ``x``."""
 
     _formula = "triangle"
     _label = "radius"
@@ -293,7 +296,11 @@ class Triangular(_Bump):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, radius: float | tuple[float, float] | Stream = 1.0, name=None):
+    def __init__(
+        self,
+        radius: float | tuple[float, float] | Parameter = 1.0,
+        name: str | None = None,
+    ):
         super().__init__(radius, name=name)
 
 
@@ -438,7 +445,11 @@ class Rectangular(_Bump):
 
     _formula = "box"
 
-    def __init__(self, radius: float | tuple[float, float] | Stream = 1.0, name=None):
+    def __init__(
+        self,
+        radius: float | tuple[float, float] | Parameter = 1.0,
+        name: str | None = None,
+    ):
         super().__init__(radius, name=name)
 
 
@@ -573,7 +584,7 @@ class Gaussian(_Bump):
     _label = "sigma"
     _pair = False
 
-    def __init__(self, sigma: float | Stream = 1.0, name=None):
+    def __init__(self, sigma: float | Parameter = 1.0, name: str | None = None):
         super().__init__(sigma, name=name)
 
 
@@ -611,10 +622,47 @@ def _width(width, owner: str, label: str, pair: bool) -> list[float] | Stream:
     return values
 
 
+class MembershipName(StrEnum):
+    """The membership functions :class:`Fuzzify` places on its centers, by
+    name.
+
+    A member is also the string of its value: ``MembershipName.GAUSSIAN`` and
+    ``"gaussian"`` are the same ``function``, in any case. The class itself,
+    :class:`Gaussian`, is the same too.
+
+    Attributes
+    ----------
+    TRIANGULAR
+        ``"triangular"``: :class:`Triangular`, 1 at the center, 0 at its
+        neighbors.
+    RECTANGULAR
+        ``"rectangular"``: :class:`Rectangular`, 1 halfway to its neighbors.
+    GAUSSIAN
+        ``"gaussian"``: :class:`Gaussian`, a bell over the center.
+
+    See Also
+    --------
+    Fuzzify : The membership of a value to fuzzy sets.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Fuzzify, MembershipName
+    >>> MembershipName.GAUSSIAN == "gaussian"
+    True
+    >>> sets = Fuzzify([0.0, 1.0, 2.0], function=MembershipName.GAUSSIAN)
+
+    .. versionadded:: 2.0
+    """
+
+    TRIANGULAR = "triangular"
+    RECTANGULAR = "rectangular"
+    GAUSSIAN = "gaussian"
+
+
 _MEMBERSHIPS = {
-    "triangular": Triangular,
-    "rectangular": Rectangular,
-    "gaussian": Gaussian,
+    MembershipName.TRIANGULAR: Triangular,
+    MembershipName.RECTANGULAR: Rectangular,
+    MembershipName.GAUSSIAN: Gaussian,
 }
 
 
@@ -721,7 +769,7 @@ class FuzzifyImpl(keras.layers.Layer):
         memberships: list = [None] * self.count
         for name in dict.fromkeys(f for f in self.functions if isinstance(f, str)):
             # The name the config holds, resolved once: the class from here on.
-            membership = _MEMBERSHIPS[name.lower()]
+            membership = _MEMBERSHIPS[MembershipName(name.lower())]
             formula = _FORMULAS[membership._formula]
             values = formula(shifted, *_PLACED[membership](left, right))
             if self.functions.count(name) == self.count:
@@ -810,8 +858,9 @@ class Fuzzify(Layer):
         with ``centers`` as given, before they are sorted. Each is one of:
 
         - :class:`Triangular`, :class:`Rectangular` or :class:`Gaussian`, as
-          a class or by name, in any case (``"triangular"``): placed on the
-          center and sized by its neighbors, see Notes;
+          a class, a member of :class:`MembershipName` or its string, in any
+          case (``"triangular"``): placed on the center and sized by its
+          neighbors, see Notes;
         - another nnodely layer class, such as :class:`Sin`: made anew for
           each center and applied to ``x - center``;
         - an nnodely layer instance, such as ``Triangular(radius=0.2)``:
@@ -1094,13 +1143,17 @@ class Fuzzify(Layer):
 
     def __init__(
         self,
-        centers,
-        function,
+        centers: Stream | Sequence[float | Stream],
+        function: type
+        | str
+        | Layer
+        | keras.layers.Layer
+        | list[type | str | Layer | keras.layers.Layer],
         bounds: bool | tuple[float, float] = False,
         normalize: bool = False,
-        name=None,
+        name: str | None = None,
     ):
-        name = next_name("Fuzzify") if name is None else name
+        name = _next_name("Fuzzify") if name is None else name
         self._bounds = _bounds(bounds, name)
         self._normalize = bool(normalize)
         self._centers, self._center_streams = _centers(centers, name)
@@ -1261,7 +1314,7 @@ class Fuzzify(Layer):
                 "function": self._function_specs(),
                 "layers": [
                     {
-                        "class_name": class_path(type(layer)),
+                        "class_name": _class_path(type(layer)),
                         "config": layer.get_config(),
                         "weights": len(probe._preds) - 1,
                     }
@@ -1288,7 +1341,7 @@ class Fuzzify(Layer):
         layers = []
         for saved in config["layers"]:
             weights, rest = rest[: saved["weights"]], rest[saved["weights"] :]
-            layer_class = cast(type[Layer], registered_class(saved["class_name"]))
+            layer_class = cast(type[Layer], _registered_class(saved["class_name"]))
             if layer_class is None:
                 raise ValueError(
                     f"Fuzzify {config['name']!r} was saved with a "
@@ -1311,7 +1364,12 @@ class Fuzzify(Layer):
         )
         return super().from_config(config, preds=[x])
 
-    def plot(self, x_range: tuple[float, float] | None = None, points=401, ax=None):
+    def plot(
+        self,
+        x_range: tuple[float, float] | None = None,
+        points: int = 401,
+        ax: Axes | None = None,
+    ):
         """Draw the memberships with matplotlib, and return the axes.
 
         The memberships are drawn as the layer computes them now. Centers and
@@ -1450,8 +1508,8 @@ def _bounds(bounds, owner: str) -> bool | tuple[float, float]:
 
 
 def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Stream]]:
-    """``centers`` checked, as the list of them - numbers, None for each read
-    from a stream - and the streams they are read from: one stream of shape
+    """``centers`` checked, as the list of them (numbers, None for each read
+    from a stream) and the streams they are read from: one stream of shape
     ``(n,)``, of one sample, with None for the list; or the scalar streams
     of a list of them and numbers."""
     if isinstance(centers, Stream):
@@ -1482,7 +1540,7 @@ def _centers(centers, owner: str) -> tuple[list[float | None] | None, list[Strea
 
 
 def _one_step(stream: Stream) -> bool:
-    """Whether a stream holds one sample - a window of one, or none; its
+    """Whether a stream holds one sample: a window of one, or none. Its
     sequence, if any, must be the signal's."""
     return stream.shape.tw in (None, 1)
 
@@ -1495,7 +1553,7 @@ def _current_value(stream: Stream, owner: str):
             f"{owner}: plot() draws centers and widths held by Parameters or "
             f"Constants; {stream.name!r} is computed, with no value of its own."
         )
-    value = stream.value if stream._variable is None else stream.value_numpy
+    value = stream.value
     if value is None:
         raise ValueError(
             f"{owner}: {stream.name!r} has no value until its model is built."
@@ -1509,8 +1567,8 @@ def _membership_function(function):
     refused."""
     if isinstance(function, str):
         try:
-            return _MEMBERSHIPS[function.lower()]
-        except KeyError:
+            return _MEMBERSHIPS[MembershipName(function.lower())]
+        except ValueError:
             raise ValueError(
                 f"Unsupported fuzzify function: {function!r}. Supported names: "
                 "'Triangular', 'Rectangular', 'Gaussian'; or any nnodely layer."

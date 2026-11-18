@@ -1,5 +1,3 @@
-"""Local model block: local functions blended by fuzzy memberships."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -9,11 +7,11 @@ from typing import Any, TypeGuard
 import keras
 import numpy as np
 
-from nnodely.core.dag import _undeclared_inputs, next_name
+from nnodely.core.dag import _undeclared_inputs, _next_name
 from nnodely.core.layer import Identity, Layer, _refuse_uncalled
 from nnodely.core.modely import Modely
 from nnodely.core.shape import Shape, slice_axis
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -82,7 +80,7 @@ class FuzzyProductImpl(keras.layers.Layer):
         return result
 
 
-class FuzzyProduct(Layer):
+class _FuzzyProduct(Layer):
     """Outer product of membership vectors, flattened row-major: dim
     ``(N,)``, the window of the longest."""
 
@@ -120,7 +118,7 @@ class CellStackImpl(keras.layers.Layer):
         return keras.ops.stack(xs, axis=self.axis)
 
 
-class CellStack(Layer):
+class _CellStack(Layer):
     """Stack equally shaped cells on a new last dim axis; scalar cells give ``(N,)``."""
 
     def output_shape(self, *inputs):
@@ -163,7 +161,7 @@ class CellSelectImpl(keras.layers.Layer):
         return slice_axis(x, self.axis, self.idx)
 
 
-class CellSelect(Layer):
+class _CellSelect(Layer):
     """One cell of a stack, without the cell axis."""
 
     def __init__(self, idx: int, name=None):
@@ -203,7 +201,7 @@ class CellSumImpl(keras.layers.Layer):
         return keras.ops.sum(x, axis=self.axis, keepdims=self.keepdims)
 
 
-class CellWeight(Multiply):
+class _CellWeight(Multiply):
     """A stack of cells weighted by their memberships, of dim ``(N,)``, which
     line up with the stack's last dim axis, a broadcast plain arithmetic
     refuses. Either may hold one sample of the window, weighed along the
@@ -216,7 +214,7 @@ class CellWeight(Multiply):
         return stack.replace(tw=max(stack.tw, mu.tw))
 
 
-class CellSum(Layer):
+class _CellSum(Layer):
     """Sum of the cells of a stack, without the cell axis."""
 
     def output_shape(self, *inputs):
@@ -493,8 +491,8 @@ class LocalModel:
 
     def __init__(
         self,
-        input_function=None,
-        output_function=None,
+        input_function: Layer | Callable[..., Any] | None = None,
+        output_function: Layer | Callable[..., Any] | None = None,
         vectorized: bool = False,
         name: str | None = None,
     ):
@@ -515,9 +513,9 @@ class LocalModel:
         self._input_function = input_function
         self._output_function = output_function
         self._vectorized = bool(vectorized)
-        self.name = next_name("LocalModel") if name is None else name
+        self.name = _next_name("LocalModel") if name is None else name
         # The layers made for the cells, kept so every call of this LocalModel
-        # applies the same ones - and so shares their weights.
+        # applies the same ones, and so shares their weights.
         self._cells: dict[tuple[str, int], Callable] = {}
         # The calls made, which name the model of each, and the last model.
         self._calls = 0
@@ -532,7 +530,7 @@ class LocalModel:
                 ("output_function", self._output_function),
             )
         }
-        return object_repr(
+        return _object_repr(
             self, name=self.name, **functions, vectorized=self._vectorized
         )
 
@@ -605,7 +603,7 @@ class LocalModel:
                     self._cell("in", function, i, index)(inputs)
                     for i, index in enumerate(indices)
                 ]
-            stack = CellStack(name=f"{call_name}_inputs")(values)
+            stack = _CellStack(name=f"{call_name}_inputs")(values)
 
         # The memberships, of dim (N,), line up with the last dim axis of the
         # stack, its cell axis, and with its window.
@@ -623,9 +621,9 @@ class LocalModel:
         mu = (
             activations[0]
             if len(activations) == 1
-            else FuzzyProduct(name=f"{call_name}_mu")(activations)
+            else _FuzzyProduct(name=f"{call_name}_mu")(activations)
         )
-        weighted = CellWeight(name=f"{call_name}_weighted")([stack, mu])
+        weighted = _CellWeight(name=f"{call_name}_weighted")([stack, mu])
 
         function = self._output_function
         if self._is_vectorized(function):
@@ -635,12 +633,12 @@ class LocalModel:
         elif function is not None:
             outputs = [
                 self._cell("out", function, i, index)(
-                    [CellSelect(idx=i, name=f"{call_name}_cell{i}")([weighted])]
+                    [_CellSelect(idx=i, name=f"{call_name}_cell{i}")([weighted])]
                 )
                 for i, index in enumerate(indices)
             ]
-            weighted = CellStack(name=f"{call_name}_outputs")(outputs)
-        return CellSum(name=f"{call_name}_sum")([weighted])
+            weighted = _CellStack(name=f"{call_name}_outputs")(outputs)
+        return _CellSum(name=f"{call_name}_sum")([weighted])
 
     def _is_vectorized(self, function) -> TypeGuard[Callable[..., Any]]:
         return (

@@ -1,28 +1,3 @@
-"""The shape of a stream, and where its axes sit in a tensor.
-
-A stream has three kinds of axes:
-
-- ``seq``, its sequence axes, outermost first, possibly none: the steps of a
-  trajectory. A Loop rolls out along the outermost one, and adds its rollout
-  as a new outermost sequence axis. A sequence axis may be dynamic
-  (``None``), its length known only at run time.
-- ``tw``, its time window: the consecutive samples along which the temporal
-  operations (filters, derivatives, integrals, time selections) act, or
-  ``None`` for a stream without one - an Input declared without ``tw``, a
-  number, a Parameter or Constant declared without ``tw``.
-- ``dim``, its feature axes, one or more.
-
-A tensor holds them after its batch axis, the window only when there is one::
-
-    (batch, *seq, tw, *dim)        (batch, *seq, *dim)
-
-This module is the only one that knows that layout. A layer asks the Shape
-of its stream where an axis is (:attr:`Shape.seq_axes`,
-:attr:`Shape.tw_axis`, :attr:`Shape.dim_axes`) and hands its Keras layer
-the tensor axis to act on; code that sees only tensors uses the helpers at
-the end of this module.
-"""
-
 from __future__ import annotations
 
 from typing import Callable
@@ -32,8 +7,8 @@ import keras
 #: The tensor axis of the batch.
 BATCH_AXIS = 0
 
-#: The first tensor axis after the batch: the outermost sequence axis - the
-#: rollout of the outermost Loop - or the window of a stream without a
+#: The first tensor axis after the batch: the outermost sequence axis (the
+#: rollout of the outermost Loop), or the window of a stream without a
 #: sequence, or its first dim axis. A rollout mask and sequence weights run
 #: along it.
 OUTER_AXIS = 1
@@ -99,7 +74,11 @@ class Shape:
         """The Shape of a tensor of ``shape``, batch axis excluded, told apart
         by how many sequence axes, or dim axes, it has, and whether it has a
         window."""
-        shape = tuple(shape)
+        # Traced by the TorchScript ONNX exporter, a size is a 0-d tensor;
+        # jax passes symbolic sizes, which stay as they are.
+        shape = tuple(
+            int(axis) if getattr(axis, "ndim", None) == 0 else axis for axis in shape
+        )
         window = 1 if tw else 0
         if seq_rank is None:
             seq_rank = len(shape) - window - int(dim_rank)  # type: ignore[arg-type]
@@ -121,25 +100,25 @@ class Shape:
     def broadcast(shapes, owner: str) -> "Shape":
         """The shape of an elementwise operation between streams of ``shapes``.
 
-        Every stream follows the same rule, read from data or not - an Input,
-        a number, a Parameter, a Constant: an axis it does not have broadcasts
-        along the others', an axis it has must match theirs.
+        Every stream follows the same rule, read from data or not (an Input,
+        a number, a Parameter, a Constant): an axis it does not have
+        broadcasts along the others', an axis it has must match theirs.
 
         The window: the same, or none, which applies to every sample of the
         others'. A single sample, ``T=1``, is a window like any other.
 
-        The sequence: the same - a dynamic axis matches any length and stays
-        dynamic - or none, which applies at every step of the others'. A
+        The sequence: the same (a dynamic axis matches any length and stays
+        dynamic), or none, which applies at every step of the others'. A
         single step is a sequence like any other.
 
-        The dim axes: lined up from the last, as Keras broadcasts them - a dim
-        of fewer axes gets leading axes of 1 - each axis the same, or 1 in one
-        of them, which stretches along the others'.
+        The dim axes: lined up from the last, as Keras broadcasts them, a dim
+        of fewer axes getting leading axes of 1. Each axis is the same, or 1
+        in one of them, which stretches along the others'.
 
         And one stream must already have the shape of the result, the others
         broadcasting into it: two streams that would both be broadcast, one
-        along the window of the other and the other along its dim - a matrix
-        without a window and the window of a scalar - are not combined.
+        along the window of the other and the other along its dim, such as a
+        matrix without a window and the window of a scalar, are not combined.
         Streams of the same sequence and window are the exception: their dims
         broadcast both ways, as Keras's do.
         """
@@ -254,13 +233,6 @@ class Shape:
         from the innermost, checked."""
         return resolve_axis(axis, self.seq_rank, owner, "seq")
 
-    @property
-    def outer(self) -> int | None:
-        """Length of the outer axis (:data:`OUTER_AXIS`): the outermost
-        sequence axis, or the window without a sequence, or the first dim
-        axis without either."""
-        return self.tuple[0]
-
     def with_seq(self, length: int | None) -> "Shape":
         """This shape rolled out by one more Loop, of ``length`` steps: a new
         outermost sequence axis."""
@@ -299,10 +271,6 @@ class Shape:
     # ------------------------------------------------------------------
     def get_config(self):
         return {"dim": tuple(self.dim), "tw": self.tw, "seq": tuple(self.seq)}
-
-    @classmethod
-    def from_config(cls, config: dict) -> "Shape":
-        return cls(dim=config.get("dim"), tw=config.get("tw"), seq=config.get("seq"))
 
     # A Shape reads as the sizes of one sample, as keras.Input takes them.
     def __iter__(self):

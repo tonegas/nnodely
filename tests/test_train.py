@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Any
 
 from nnodely import (
@@ -144,11 +145,11 @@ def test_train_with_parameters():
 
     model.train(train_data=data_train, epochs=100, batch_size=16, lr=0.01, **CONVERGED)
     assert np.isclose(
-        a=np.array(param.value_numpy),
-        b=np.array(true_param - const.value_numpy),
+        a=np.array(param.value),
+        b=np.array(true_param - const.value),
         atol=0.01,
     )
-    assert np.isclose(const.value_numpy, np.array([1.0]), atol=0.01)  # type: ignore
+    assert np.isclose(const.value, np.array([1.0]), atol=0.01)  # type: ignore
 
     # ------ Inference after training -------
     result_after_training = model(
@@ -182,23 +183,23 @@ def test_training_values_fir_linear():
 
     fir_weight = fir_kernel.param
     assert fir_weight is not None
-    assert linear_out.kernel is not None
-    assert linear_out.bias is not None
+    assert linear_out.weights["kernel"].param is not None
+    assert linear_out.weights["bias"].param is not None
 
     def reset_weights():
         fir_weight.assign([1.0])
-        linear_out.kernel.assign([[1.0]])
-        linear_out.bias.assign([1.0])
+        linear_out.weights["kernel"].param.assign([[1.0]])
+        linear_out.weights["bias"].param.assign([1.0])
 
     def assert_weights(fir_kernel, kernel, bias):
         np.testing.assert_allclose(
-            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+            to_numpy(fir_out.weights["kernel"].param), fir_kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["kernel"].param), kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["bias"].param), bias, rtol=1e-5, atol=1e-5
         )
 
     reset_weights()
@@ -261,23 +262,23 @@ def test_training_values_fir_linear_only_model():
 
     fir_weight = fir_kernel.param
     assert fir_weight is not None
-    assert linear_out.kernel is not None
-    assert linear_out.bias is not None
+    assert linear_out.weights["kernel"].param is not None
+    assert linear_out.weights["bias"].param is not None
 
     def reset_weights():
         fir_weight.assign([1.0])
-        linear_out.kernel.assign([[1.0]])
-        linear_out.bias.assign([1.0])
+        linear_out.weights["kernel"].param.assign([[1.0]])
+        linear_out.weights["bias"].param.assign([1.0])
 
     def assert_weights(fir_kernel, kernel, bias):
         np.testing.assert_allclose(
-            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+            to_numpy(fir_out.weights["kernel"].param), fir_kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["kernel"].param), kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["bias"].param), bias, rtol=1e-5, atol=1e-5
         )
 
     reset_weights()
@@ -344,23 +345,23 @@ def test_training_values_fir_linear_more_samples():
 
     fir_weight = fir_kernel.param
     assert fir_weight is not None
-    assert linear_out.kernel is not None
-    assert linear_out.bias is not None
+    assert linear_out.weights["kernel"].param is not None
+    assert linear_out.weights["bias"].param is not None
 
     def reset_weights():
         fir_weight.assign([1.0])
-        linear_out.kernel.assign([[1.0]])
-        linear_out.bias.assign([1.0])
+        linear_out.weights["kernel"].param.assign([[1.0]])
+        linear_out.weights["bias"].param.assign([1.0])
 
     def assert_weights(fir_kernel, kernel, bias):
         np.testing.assert_allclose(
-            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+            to_numpy(fir_out.weights["kernel"].param), fir_kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.kernel), kernel, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["kernel"].param), kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(linear_out.bias), bias, rtol=1e-5, atol=1e-5
+            to_numpy(linear_out.weights["bias"].param), bias, rtol=1e-5, atol=1e-5
         )
 
     reset_weights()
@@ -423,23 +424,25 @@ def test_training_values_linear_fir_window():
     model.minimize("error2", source=output2, target=target, loss="mse")
     model.build()
 
-    assert lin_out.kernel is not None
-    assert lin_out.bias is not None
+    assert lin_out.weights["kernel"].param is not None
+    assert lin_out.weights["bias"].param is not None
     fir_weight = fir_kernel.param
     assert fir_weight is not None
 
     def reset_weights():
-        lin_out.kernel.assign([[-1.0], [-5.0]])
-        lin_out.bias.assign([1.0])
+        lin_out.weights["kernel"].param.assign([[-1.0], [-5.0]])
+        lin_out.weights["bias"].param.assign([1.0])
         fir_weight.assign([4.0, 5.0])
 
     def assert_weights(kernel, bias, fir_kernel):
         np.testing.assert_allclose(
-            to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5
+            to_numpy(lin_out.weights["kernel"].param), kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(
-            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+            to_numpy(lin_out.weights["bias"].param), bias, rtol=1e-5, atol=1e-5
+        )
+        np.testing.assert_allclose(
+            to_numpy(fir_out.weights["kernel"].param), fir_kernel, rtol=1e-5, atol=1e-5
         )
 
     reset_weights()
@@ -504,22 +507,24 @@ def test_training_values_fir_and_linear_closed_loop():
 
     fir_weight = fir_kernel.param
     assert fir_weight is not None
-    assert lin_out.kernel is not None
-    assert lin_out.bias is not None
+    assert lin_out.weights["kernel"].param is not None
+    assert lin_out.weights["bias"].param is not None
 
     def reset_weights():
         fir_weight.assign([1.0])
-        lin_out.kernel.assign([[1.0]])
-        lin_out.bias.assign([1.0])
+        lin_out.weights["kernel"].param.assign([[1.0]])
+        lin_out.weights["bias"].param.assign([1.0])
 
     def assert_weights(fir_kernel, kernel, bias):
         np.testing.assert_allclose(
-            to_numpy(fir_out.kernel), fir_kernel, rtol=1e-5, atol=1e-5
+            to_numpy(fir_out.weights["kernel"].param), fir_kernel, rtol=1e-5, atol=1e-5
         )
         np.testing.assert_allclose(
-            to_numpy(lin_out.kernel), kernel, rtol=1e-5, atol=1e-5
+            to_numpy(lin_out.weights["kernel"].param), kernel, rtol=1e-5, atol=1e-5
         )
-        np.testing.assert_allclose(to_numpy(lin_out.bias), bias, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            to_numpy(lin_out.weights["bias"].param), bias, rtol=1e-5, atol=1e-5
+        )
 
     reset_weights()
 
@@ -622,13 +627,15 @@ def test_training_values_linear():
         optimizer="sgd",
         lr=1.0,
     )
-    assert linear_out.kernel is not None
-    assert linear_out.bias is not None
+    assert linear_out.weights["kernel"].param is not None
+    assert linear_out.weights["bias"].param is not None
 
     np.testing.assert_allclose(
-        to_numpy(linear_out.kernel), [[3.0]], rtol=1e-5, atol=1e-5
+        to_numpy(linear_out.weights["kernel"].param), [[3.0]], rtol=1e-5, atol=1e-5
     )
-    np.testing.assert_allclose(to_numpy(linear_out.bias), [3.0], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(linear_out.weights["bias"].param), [3.0], rtol=1e-5, atol=1e-5
+    )
 
     model.build()
     model.train(
@@ -640,9 +647,11 @@ def test_training_values_linear():
     )
 
     np.testing.assert_allclose(
-        to_numpy(linear_out.kernel), [[2.0]], rtol=1e-5, atol=1e-5
+        to_numpy(linear_out.weights["kernel"].param), [[2.0]], rtol=1e-5, atol=1e-5
     )
-    np.testing.assert_allclose(to_numpy(linear_out.bias), [2.0], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(linear_out.weights["bias"].param), [2.0], rtol=1e-5, atol=1e-5
+    )
 
 
 @pytest.mark.parametrize(
@@ -720,12 +729,14 @@ def test_train_with_custom_optimizer():
 
     assert model._keras_model is not None
     assert model._keras_model.optimizer is optimizer
-    assert linear.kernel is not None
-    assert linear.bias is not None
+    assert linear.weights["kernel"].param is not None
+    assert linear.weights["bias"].param is not None
     # Initial prediction is 1 * 1 + 1 = 2. MSE gives a gradient of -2 for
     # both variables, so one custom update adds 0.25 * 2 = 0.5.
-    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.5]], atol=1e-5)
-    np.testing.assert_allclose(to_numpy(linear.bias), [1.5], atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(linear.weights["kernel"].param), [[1.5]], atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear.weights["bias"].param), [1.5], atol=1e-5)
 
 
 def test_train_equation_learner_updates_symbolic_coefficients():
@@ -757,14 +768,20 @@ def test_train_equation_learner_updates_symbolic_coefficients():
 
     assert equation._linear_in is not None
     assert equation._linear_out is not None
-    assert equation._linear_in.kernel is not None
-    assert equation._linear_out.kernel is not None
+    assert equation._linear_in.weights["kernel"].param is not None
+    assert equation._linear_out.weights["kernel"].param is not None
     assert np.isfinite(history.losses["loss"][-1])
     np.testing.assert_allclose(
-        to_numpy(equation._linear_in.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_in.weights["kernel"].param),
+        [[1.4]],
+        rtol=1e-5,
+        atol=1e-5,
     )
     np.testing.assert_allclose(
-        to_numpy(equation._linear_out.kernel), [[1.4]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_out.weights["kernel"].param),
+        [[1.4]],
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 
@@ -797,7 +814,7 @@ def test_train_equation_learner_trains_coefficients_below_the_threshold():
         source={"dropped_train_input": [1.0], "dropped_train_target": [3.0]},
     )
     model.train(
-        train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1, printer=None
+        train_data=data, epochs=1, batch_size=1, optimizer="sgd", lr=0.1, verbose=False
     )
 
     # The prediction 0 against 3 gives a gradient of -6 to the output
@@ -805,10 +822,16 @@ def test_train_equation_learner_trains_coefficients_below_the_threshold():
     # through the dropped coefficient, as zero, and keeps its value.
     assert equation._linear_in is not None and equation._linear_out is not None
     np.testing.assert_allclose(
-        to_numpy(equation._linear_out.kernel), [[0.605]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_out.weights["kernel"].param),
+        [[0.605]],
+        rtol=1e-5,
+        atol=1e-5,
     )
     np.testing.assert_allclose(
-        to_numpy(equation._linear_in.kernel), [[1.0]], rtol=1e-5, atol=1e-5
+        to_numpy(equation._linear_in.weights["kernel"].param),
+        [[1.0]],
+        rtol=1e-5,
+        atol=1e-5,
     )
     np.testing.assert_allclose(
         to_numpy(model(one)["dropped_train_output"]).ravel(), [0.605], rtol=1e-5
@@ -843,13 +866,13 @@ def test_train_equation_learner_fine_tunes_with_a_threshold():
         source={"law_input": xs, "law_target": 2.0 * np.sin(xs) + 0.5 * xs},
     )
     history = model.train(
-        train_data=data, epochs=60, batch_size=10, lr=0.02, printer=None
+        train_data=data, epochs=60, batch_size=10, lr=0.02, verbose=False
     )
     assert history.losses["loss"][-1] < 1e-2
 
     learner.threshold = 0.05
     history = model.train(
-        train_data=data, epochs=20, batch_size=10, lr=0.002, printer=None
+        train_data=data, epochs=20, batch_size=10, lr=0.002, verbose=False
     )
     assert history.losses["loss"][-1] < 1e-2
 
@@ -937,8 +960,8 @@ def test_train_with_named_loss(loss_name):
     )
 
     assert np.isfinite(history.losses["loss"][-1])
-    assert linear.kernel is not None
-    assert not np.allclose(to_numpy(linear.kernel), [[1.0]])
+    assert linear.weights["kernel"].param is not None
+    assert not np.allclose(to_numpy(linear.weights["kernel"].param), [[1.0]])
 
 
 def test_train_with_multiple_minimizer_losses():
@@ -972,10 +995,10 @@ def test_train_with_multiple_minimizer_losses():
     )
 
     assert np.isfinite(history.losses["loss"][-1])
-    assert mse_linear.kernel is not None
-    assert mae_linear.kernel is not None
-    assert not np.allclose(to_numpy(mse_linear.kernel), [[1.0]])
-    assert not np.allclose(to_numpy(mae_linear.kernel), [[1.0]])
+    assert mse_linear.weights["kernel"].param is not None
+    assert mae_linear.weights["kernel"].param is not None
+    assert not np.allclose(to_numpy(mse_linear.weights["kernel"].param), [[1.0]])
+    assert not np.allclose(to_numpy(mae_linear.weights["kernel"].param), [[1.0]])
 
 
 def test_train_with_custom_loss_function():
@@ -999,12 +1022,14 @@ def test_train_with_custom_loss_function():
         lr=0.1,
     )
 
-    assert linear.kernel is not None
-    assert linear.bias is not None
+    assert linear.weights["kernel"].param is not None
+    assert linear.weights["bias"].param is not None
     # Initial prediction is 2 and d((prediction - 3)^4)/d prediction is -4.
     # With x=1 and SGD(lr=0.1), both variables increase by 0.4.
-    np.testing.assert_allclose(to_numpy(linear.kernel), [[1.4]], atol=1e-5)
-    np.testing.assert_allclose(to_numpy(linear.bias), [1.4], atol=1e-5)
+    np.testing.assert_allclose(
+        to_numpy(linear.weights["kernel"].param), [[1.4]], atol=1e-5
+    )
+    np.testing.assert_allclose(to_numpy(linear.weights["bias"].param), [1.4], atol=1e-5)
 
 
 def test_train_with_loop():
@@ -1086,17 +1111,9 @@ def test_train_with_loop():
     keras.backend.backend() == "torch",
     reason="jit_compile on the torch backend is torch.compile, not XLA",
 )
-def test_train_with_loop_under_xla(monkeypatch):
+def test_train_with_loop_under_xla():
     # XLA compiles the gradient of the rollout loop only when its trip count is
     # bounded, which "auto" does not exercise on a CPU-only machine.
-    compile_model = keras.Model.compile
-    monkeypatch.setattr(
-        keras.Model,
-        "compile",
-        lambda self, *args, **kwargs: compile_model(
-            self, *args, **{**kwargs, "jit_compile": True}
-        ),
-    )
     state = Input("state", tw=1)
     x = Input("x", seq=5, tw=1)
     target = Input("target", seq=5, tw=1)
@@ -1105,18 +1122,54 @@ def test_train_with_loop_under_xla(monkeypatch):
     body = Modely("body", inputs=[state], outputs=[output]).build()
     loop = Loop(f=body, feedback={state: output}, name="loop", init={state: x})()
     out_loop = Output("out_loop", loop)
-    model = Modely("model", inputs=[x, target], outputs=[out_loop])
+    model = Modely("model", inputs=[x], outputs=[out_loop])
     model.minimize("error", source=out_loop, target=target, loss="mse")
     model.build()
 
     values = np.linspace(0.0, 1.0, 20)
     data = DataLoader(model, source={"x": values, "target": 2.0 * values})
-    history = model.train(train_data=data, epochs=5, batch_size=4, lr=0.01)
+    history = model.train(
+        train_data=data, epochs=5, batch_size=4, lr=0.01, jit_compile=True
+    )
 
     assert model._keras_model is not None
     assert model._keras_model.jit_compile
     assert np.all(np.isfinite(history.losses["loss"]))
     assert history.losses["loss"][-1] < history.losses["loss"][0]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    keras.backend.backend() == "torch" and sys.platform == "win32",
+    reason="torch.compile needs a C++ compiler (cl.exe) on PATH on Windows",
+)
+def test_train_compiled_or_not_gives_the_same_losses():
+    x, y = Input("jit_x", tw=1), Input("jit_y", tw=1)
+    out = Output("jit_out", Linear(features=1, kernel="ones", bias=False)(x))
+    model = Modely("jit_model", inputs=[x], outputs=[out])
+    model.minimize("jit_fit", out, y)
+    model.build()
+    samples = np.arange(8.0)
+    data = DataLoader(model, source={"jit_x": samples, "jit_y": 2.0 * samples})
+
+    losses = {}
+    for jit_compile in (True, False):
+        model.build(keep_weights=False)
+        result = model.train(
+            data,
+            epochs=3,
+            batch_size=4,
+            optimizer="sgd",
+            lr=0.01,
+            shuffle=False,
+            verbose=False,
+            jit_compile=jit_compile,
+        )
+        assert model._keras_model is not None
+        assert model._keras_model.jit_compile is jit_compile
+        losses[jit_compile] = result.losses["loss"]
+
+    np.testing.assert_allclose(losses[True], losses[False], rtol=1e-5)
 
 
 def test_masked_loss_ignores_padded_target_steps():
@@ -1187,8 +1240,10 @@ def test_train_on_simulations_of_different_lengths(tmp_path):
 
     assert np.isfinite(history.losses["loss"][-1])
     assert history.losses["loss"][-1] < history.losses["loss"][0]
-    assert relation.kernel is not None
-    np.testing.assert_allclose(to_numpy(relation.kernel), [[ratio]], atol=1e-2)
+    assert relation.weights["kernel"].param is not None
+    np.testing.assert_allclose(
+        to_numpy(relation.weights["kernel"].param), [[ratio]], atol=1e-2
+    )
 
     ## The export is the model as declared, without its minimizers: it reads the
     ## simulations only, not the target the loss compared them against
@@ -1238,7 +1293,7 @@ def test_train_with_val_data_reports_validation_loss():
         epochs=2,
         batch_size=2,
         optimizer=keras.optimizers.SGD(learning_rate=0.0),
-        printer=None,
+        verbose=False,
     )
 
     np.testing.assert_allclose(history.losses["val_loss"], [2.5, 2.5], rtol=1e-6)
@@ -1266,7 +1321,7 @@ def test_train_target_window_of_an_input_with_a_wider_window():
         epochs=1,
         batch_size=3,
         optimizer=keras.optimizers.SGD(learning_rate=0.0),
-        printer=None,
+        verbose=False,
     )
 
     np.testing.assert_allclose(history.losses["loss"], [20.0 / 3.0], rtol=1e-5)
@@ -1295,16 +1350,17 @@ def test_train_refuses_arguments_it_cannot_use():
         ({"batch_size": 0}, ValueError, "batch_size is a positive integer"),
         ({"lr": -1.0}, ValueError, "lr is a non-negative number"),
         ({"shuffle": "no"}, TypeError, "shuffle is True or False"),
+        ({"jit_compile": "yes"}, ValueError, "jit_compile is 'auto', True or False"),
         ({"optimizer_kwargs": {"learning_rate": 0.5}}, ValueError, "lr argument"),
     ]
     for kwargs, error, message in cases:
         with pytest.raises(error, match=message):
-            model.train(data, printer=None, **kwargs)
+            model.train(data, verbose=False, **kwargs)
     with pytest.raises(TypeError, match="train_data is a DataLoader"):
-        model.train({"args_x": np.ones((4, 1, 1))}, printer=None)  # type: ignore[arg-type]
+        model.train({"args_x": np.ones((4, 1, 1))}, verbose=False)  # type: ignore[arg-type]
 
     # The validation loss of args_fit is logged as val_loss_args_fit, and the
     # training loss of a minimizer named val_args_fit as loss_val_args_fit:
     # the two names live together.
     model.minimize("val_args_fit", out, y)
-    assert [m["name"] for m in model.minimizers][-1] == "val_args_fit"
+    assert [m.name for m in model.minimizers][-1] == "val_args_fit"

@@ -19,7 +19,9 @@ def _initialized_linear_weights(seed: int, suffix: str):
         inputs=[x],
         outputs=[Output(f"seed_out_{suffix}", linear)],
     ).build()
-    return to_numpy(linear.kernel), to_numpy(linear.bias)
+    return to_numpy(linear.weights["kernel"].param), to_numpy(
+        linear.weights["bias"].param
+    )
 
 
 def test_set_seed_repeats_python_numpy_and_keras_initialization():

@@ -15,7 +15,6 @@ from nnodely import (
     IntegrateStep,
     Loop,
     Modely,
-    ModelyLoop,
     Output,
 )
 
@@ -93,35 +92,35 @@ def _integrate_loop(tag, seeded):
     )
 
 
-def _integrate_modelyloop(tag, seeded):
+def _integrate_model_loop(tag, seeded):
     u, y0 = Input(f"{tag}_u", tw=1), Input(f"{tag}_y0", tw=1)
     y_next = Integrate(dt=1, init=y0 if seeded else None)(u)
-    return ModelyLoop(
+    return Modely(
         tag,
         inputs=[u, y0] if seeded else [u],
         outputs=[Output(f"{tag}_traj", y_next)],
-    )
+    ).loop()
 
 
-def _feedback_modelyloop(tag, seeded):
-    # Among the inputs, y starts from its data.
+def _feedback_model_loop(tag, seeded):
+    # Among the inputs, y starts from its data; hidden, from its init, zero.
     u, y = Input(f"{tag}_u", tw=1), Input(f"{tag}_y", tw=1)
-    y_next = y.feedback(IntegrateStep(dt=1)(y, u))
-    return ModelyLoop(
+    y_next = y.feedback(IntegrateStep(dt=1)(y, u), hidden=not seeded)
+    return Modely(
         tag,
         inputs=[u, y] if seeded else [u],
         outputs=[Output(f"{tag}_traj", y_next)],
-    )
+    ).loop()
 
 
 # What builds each, the Input of its signal and of its initial value, and
-# whether that carries the horizon: a ModelyLoop reads every Input step by step.
+# whether that carries the horizon: a model.loop() rollout reads every Input step by step.
 CONSTRUCTIONS = {
     "integrate_step_loop": (_integrate_step_loop, "u_seq", "y0", None),
     "feedback_loop": (_feedback_loop, "u_seq", "y0", None),
     "integrate_loop": (_integrate_loop, "u_seq", "y0i", None),
-    "integrate_modelyloop": (_integrate_modelyloop, "u", "y0", STEPS),
-    "feedback_modelyloop": (_feedback_modelyloop, "u", "y", STEPS),
+    "integrate_model_loop": (_integrate_model_loop, "u", "y0", STEPS),
+    "feedback_model_loop": (_feedback_model_loop, "u", "y", STEPS),
 }
 
 
@@ -234,7 +233,7 @@ def test_a_loop_returns_the_outputs_of_the_step_not_the_ones_it_adds(tmp_path):
     # The update of y is no output: the body gains one for it, which the Loop
     # does not return, so it is the one output of the step, a stream.
     u, y = Input("fb_ret_u", tw=1), Input("fb_ret_y", tw=1)
-    y.feedback(y + u)
+    y.feedback(y + u, hidden=True)
     step = Modely("fb_ret_step", inputs=[u], outputs=[Output("fb_ret_twice", y * 2.0)])
     loop = Loop(f=step)
     assert [output.name for output in loop._model.outputs] == [
@@ -367,7 +366,7 @@ def test_a_loop_output_is_picked_by_its_name_in_the_step():
     # One output: the loop is that output. The one it adds for the update of
     # z is not returned, so not picked either.
     v, z = Input("fb_key_v", tw=1), Input("fb_key_z", tw=1)
-    z.feedback(z + v)
+    z.feedback(z + v, hidden=True)
     single = Modely("fb_key_single", inputs=[v], outputs=[Output("fb_key_3z", z * 3.0)])
     one = Loop(f=single)({v: Input("fb_key_v_seq", seq=-1, tw=1)})
     assert one["fb_key_3z"] is one
@@ -379,25 +378,33 @@ def test_a_state_starts_from_zero_along_a_dynamic_sequence(tmp_path):
     # A state with a dynamic sequence axis that starts from zero, or from a
     # number, takes the length of that axis from the value fed back.
     x = Input("fb_dyn_x", tw=1)
-    inner = ModelyLoop(
-        "fb_dyn_inner",
-        inputs=[x],
-        outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
-    ).build()
+    inner = (
+        Modely(
+            "fb_dyn_inner",
+            inputs=[x],
+            outputs=[Output("fb_dyn_xx", Integrate(dt=1)(x))],
+        )
+        .loop()
+        .build()
+    )
     k = Input("fb_dyn_k", tw=1, seq=-1)
     s = Input("fb_dyn_s", tw=1, seq=-1)
-    model = ModelyLoop(
-        "fb_dyn",
-        inputs=[k],
-        outputs=[
-            # The inner loop rolls out along the sequence of k, the outer one
-            # integrates what it returns.
-            Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
-            Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
-            Output("fb_dyn_buf", Buffer(tw=2)(k)),
-            Output("fb_dyn_sum", s.feedback(s + k)),
-        ],
-    ).build()
+    model = (
+        Modely(
+            "fb_dyn",
+            inputs=[k],
+            outputs=[
+                # The inner loop rolls out along the sequence of k, the outer one
+                # integrates what it returns.
+                Output("fb_dyn_kk", Integrate(dt=1)(inner([k]))),
+                Output("fb_dyn_from_two", Integrate(dt=1, init=2.0)(k)),
+                Output("fb_dyn_buf", Buffer(tw=2)(k)),
+                Output("fb_dyn_sum", s.feedback(s + k, hidden=True)),
+            ],
+        )
+        .loop()
+        .build()
+    )
 
     # Three steps of a sequence of four, 1 to 12.
     data = {"fb_dyn_k": np.arange(1, 13, dtype=np.float32).reshape(1, 3, 4, 1, 1)}
@@ -437,11 +444,15 @@ def test_a_dynamic_initial_value_feeds_a_state_of_a_static_sequence():
     k, k0 = Input("fb_pin_k", tw=1, seq=-1), Input("fb_pin_k0", tw=1, seq=-1)
     rate = inner([k])
     assert tuple(rate.seq) == (3,)
-    model = ModelyLoop(
-        "fb_pin",
-        inputs=[k, k0],
-        outputs=[Output("fb_pin_kk", Integrate(dt=1, init=k0)(rate))],
-    ).build()
+    model = (
+        Modely(
+            "fb_pin",
+            inputs=[k, k0],
+            outputs=[Output("fb_pin_kk", Integrate(dt=1, init=k0)(rate))],
+        )
+        .loop()
+        .build()
+    )
 
     rows = np.arange(1, 13, dtype=np.float32).reshape(4, 3)
     data = {

@@ -8,7 +8,7 @@
   <a href="https://pypi.org/project/nnodely/"><img src="https://img.shields.io/pypi/v/nnodely?color=6F84FE&label=PyPI" alt="PyPI"></a>
   <a href="https://nnodely.readthedocs.io/"><img src="https://img.shields.io/readthedocs/nnodely?color=80BFFF&label=docs" alt="Documentation"></a>
   <a href="https://codecov.io/github/tonegas/nnodely"><img src="https://codecov.io/github/tonegas/nnodely/graph/badge.svg?token=8V6P2PSYT4" alt="codecov"></a>
-  <img src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.13-5B4BFB" alt="Python 3.10 - 3.13">
+  <img src="https://img.shields.io/badge/python-3.11%20%E2%80%93%203.13-5B4BFB" alt="Python 3.11 - 3.13">
   <img src="https://img.shields.io/badge/Keras%203-TensorFlow%20%7C%20PyTorch%20%7C%20JAX-7A3FE8" alt="Keras 3: TensorFlow, PyTorch, JAX">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-A5D8FF" alt="License: MIT"></a>
 </p>
@@ -20,7 +20,7 @@
 
 Modeling, control, and estimation of physical systems are central to many engineering disciplines. While data-driven methods like neural networks offer powerful tools, they often struggle to **incorporate prior domain knowledge**, limiting their interpretability, generalizability, and safety.
 
-We present ***nnodely*** (where "nn" can be read as "m," forming *Modely*) — a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).
+We present ***nnodely*** (where "nn" can be read as "m," forming *Modely*): a framework that facilitates the creation and deployment of **Model-Structured Neural Networks** (**MS-NNs**).
 MS-NNs combine the learning capabilities of neural networks with structural **priors** grounded in **physics, control, and estimation theory**, enabling:
 
 - **Encoding Physics** at the architectural level
@@ -31,7 +31,7 @@ MS-NNs combine the learning capabilities of neural networks with structural **pr
 
 In short:
 
-nnodely is not a replacement for general-purpose deep learning frameworks — it is a **structured layer on top of them**, purpose-built for physical systems.
+nnodely is not a replacement for general-purpose deep learning frameworks: it is a **structured layer on top of them**, purpose-built for physical systems.
 
 
 <p align="center">
@@ -44,14 +44,25 @@ nnodely is not a replacement for general-purpose deep learning frameworks — it
 
 ```sh
 pip install "nnodely[torch]"        # or [tensorflow], or [jax]
-pip install "nnodely[torch,onnx]"   # + ONNX export
 ```
 
-Pick the backend with `KERAS_BACKEND` (TensorFlow if unset) before importing nnodely:
+Each backend comes with what nnodely needs to export the model to ONNX.
+
+`pip install nnodely` alone installs no backend: name one, as above.
+
+Choose the backend with `KERAS_BACKEND`, **before importing nnodely**: it is
+read once, at the import, and kept until the process ends. Unset, nnodely runs
+on TensorFlow, the default of Keras, or on the backend installed when only
+one is. `nnodely.get_backend()` tells which.
 
 ```sh
-export KERAS_BACKEND=torch
+export KERAS_BACKEND=torch      # or, at the top of a script: os.environ["KERAS_BACKEND"] = "torch"
 ```
+
+nnodely computes on the CPU, where its small models run fastest. Set
+`NNODELY_DEVICE=gpu`, also before the import, for the accelerator of the
+backend: CUDA, or the Apple GPU with PyTorch. `nnodely.get_device()` tells
+which device it uses.
 
 ## Hello, world
 
@@ -68,7 +79,8 @@ set_seed(42)
 
 x = Input("x", tw=2)  # a window of two samples: [x[t-1], x[t]]
 prev, cur = TimeSelect(0)(x), TimeSelect(1)(x)
-out = Output("out", Parameter("A") * prev + Parameter("B") * cur)
+# The next value, fed back into the window of x when the model runs closed loop
+out = Output("out", x.feedback(Parameter("A") * prev + Parameter("B") * cur))
 
 model = Modely("Fibonacci", inputs=[x], outputs=[out])
 model.minimize("target", out, prev + cur)  # the next value is the sum of the last two
@@ -77,14 +89,12 @@ model.build()
 data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
 model.train(data, epochs=50, batch_size=32, lr=0.05)  # learns A = B = 1
 
-# Run it closed loop for 10 steps: each prediction is fed back into the window
-# of x, which starts from the window of the input "start"
-start = Input("start", tw=2)
-loop = Loop(f=model, feedback={x: out}, init={x: start}, seq=10)()
-generator = Modely("FibonacciGenerator", inputs=[start], outputs=[Output("fib", loop)]).build()
-
-result = generator({"start": np.array([[[0.0], [1.0]]])})  # (batch, tw, dim)
-print(keras.ops.convert_to_numpy(result["fib"]).ravel())  # 1, 2, 3, 5, 8, ..., 89
+# Run it closed loop: each step feeds its value back into the window of x
+generator = model.loop().build()
+steps = np.zeros((1, 10, 2, 1))  # 10 steps of x: (batch, steps, tw, dim)
+steps[:, 0] = [[0.0], [1.0]]  # x starts from [0, 1]: only its first step is read
+result = generator({"x": steps})
+print(keras.ops.convert_to_numpy(result["out"]).ravel())  # 1, 2, 3, 5, 8, ..., 89
 
 generator.save("fibonacci_model")  # save the nnodely model
 ```
@@ -97,7 +107,7 @@ generator.save("fibonacci_model")  # save the nnodely model
 | **Signals** | `Input` with a sequence and a sample window (`tw`), fed back with its next value (`feedback`), `Output`, `Parameter`, `Constant`, arithmetic on streams |
 | **Structured layers** | `Fir` [[1]](#1), `Linear`, `LocalModel` [[1]](#1) [[3]](#3) [[4]](#4) [[5]](#5), `Fuzzify` [[2]](#2), `EquationLearner` [[6]](#6), `Interpolation`, `BatchNorm` |
 | **Calculus** | `Gradient` w.r.t. inputs, and `DerivativeStep` over a window and `Derivative` step by step w.r.t. time, for physics-informed [[7]](#7) and Sobolev [[8]](#8) training · `IntegrateStep` over a window, and `Integrate` step by step · `Ode` (Euler, midpoint, Heun, RK4) |
-| **Recurrence** | `ModelyLoop` for models declared one step at a time, their states fed back in one rollout, with `Buffer` for the window of a signal computed step by step · `Loop` for rollouts over whole trajectories |
+| **Recurrence** | `model.loop()` for models declared one step at a time, their states fed back in one rollout, with `Buffer` for the window of a signal computed step by step · `Loop` for rollouts over whole trajectories |
 | **Data** | `DataLoader` from dicts, DataFrames or CSV folders, multiple simulations, sequences, masks |
 | **Workflow** | `train` with any Keras optimizer and loss · `validate` with system-identification metrics and plots · model composition · `save`/`load`, Keras and ONNX export, interactive HTML graphs |
 
@@ -134,7 +144,7 @@ a reference written for LLMs and coding agents rather than for people. It is den
 - a table that maps physical concepts and equations to nnodely blocks;
 - the shape convention `(batch, *seq, tw, *dim)` and how windows and sequences are aligned by the `DataLoader`;
 - exact signatures of every block, of `Modely` and of `DataLoader`;
-- when to use `ModelyLoop`, `Loop` or `Ode`, and how to align their training data;
+- when to use `model.loop()`, `Loop` or `Ode`, and how to align their training data;
 - which models can be saved or exported to Keras and ONNX, on which backend;
 - common error messages with their fix, runnable recipes, and a checklist to review generated code.
 
