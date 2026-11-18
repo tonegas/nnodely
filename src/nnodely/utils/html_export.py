@@ -10,7 +10,7 @@ import json
 import shutil
 from html import escape
 from pathlib import Path
-from nnodely.core.dag import free_name
+from nnodely.core.dag import _free_name
 from nnodely.core.modely import Modely, ModelCall
 
 from nnodely.layers.input import Input
@@ -443,7 +443,6 @@ def export_html(
     out_dir: str | os.PathLike,
     filename: str | None = None,
     *,
-    open_subgraph_in_new_tab: bool = False,
     physics: bool = True,
 ) -> str:
     """
@@ -555,7 +554,7 @@ def export_html(
             if sub_name is None:
                 stem = f"{_slug(page_title)}__{_slug(node.name)}"
                 stems = {name.removesuffix(".html") for name in page_files.values()}
-                sub_name = free_name(stem, stems) + ".html"
+                sub_name = _free_name(stem, stems) + ".html"
                 page_files[(id(model_obj), id(node))] = sub_name
             sub_title = f"{page_title} :: {node.name}"
             parent_for_child = os.path.relpath(file_path, start=out_path)
@@ -749,7 +748,6 @@ def export_html(
             "parent_rel": parent_rel,
             "standard_rel": standard_rel,
             "flattened_rel": flattened_rel,
-            "link_target": "_blank" if open_subgraph_in_new_tab else "_self",
             "physics": bool(physics),
         }
         html = _render_page(

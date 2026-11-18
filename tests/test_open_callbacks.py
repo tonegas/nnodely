@@ -198,7 +198,7 @@ def test_buffer_feeds_a_plant_that_reads_a_window_of_the_command():
     )
     # The plant's output feeds y back, which its own argument reads: still a
     # single call of the plant, one buffer.
-    fed_back = [node for node in model.models[0]._inputs if node.update is not None]
+    fed_back = [node for node in model.models[0]._inputs if node._update is not None]
     assert len(fed_back) == 2
 
 
@@ -691,7 +691,7 @@ def test_training_identifies_a_spring_from_a_measured_trajectory(tmp_path):
         },
         seq_length=20,
     )
-    model.train(data, epochs=100, batch_size=32, lr=0.05, printer=None)
+    model.train(data, epochs=100, batch_size=32, lr=0.05, verbose=False)
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [k_true], rtol=1e-2)
 
     model.save(tmp_path / "oc_fit")
@@ -797,7 +797,7 @@ def test_feedback_and_model_loop_reject_what_they_cannot_feed_back():
         state.feedback(
             state + rate, init=Input("oc_err_wide2", dim=2, tw=1), hidden=True
         )
-    assert state.update is None and not state._hidden
+    assert state._update is None and not state._hidden
 
     state.feedback(state + rate, hidden=True)
     with pytest.raises(ValueError, match="already fed back"):
@@ -857,7 +857,7 @@ def test_a_saved_plant_keeps_its_feedback_in_a_model_loop(tmp_path):
         plant.save(tmp_path / "oc_plant")
     loaded = Modely.load(tmp_path / "oc_plant")
     loaded_x = next(node for node in loaded._inputs if node.name == "oc_plant_x")
-    assert loaded_x.update is not None and loaded_x.update.name == "oc_plant_x_n"
+    assert loaded_x._update is not None and loaded_x._update.name == "oc_plant_x_n"
 
     def looped(model, tag):
         x0, u = Input(f"{tag}_x0", tw=3), Input(f"{tag}_u", tw=1)
@@ -1091,8 +1091,8 @@ def test_a_hidden_state_starts_from_its_init_in_every_rollout():
         seq_length=4,
         step=4,
     )
-    model.train(data, epochs=200, lr=0.1, batch_size=10, printer=None)
-    assert np.ravel(start.value_numpy)[0] == pytest.approx(10.0, abs=0.5)  # type: ignore
+    model.train(data, epochs=200, lr=0.1, batch_size=10, verbose=False)
+    assert np.ravel(start.value)[0] == pytest.approx(10.0, abs=0.5)  # type: ignore
 
 
 def test_a_hidden_state_is_the_model_s_own_and_keeps_its_name():

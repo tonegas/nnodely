@@ -441,6 +441,36 @@ def test_full_sequence_spans_each_simulation_and_pads():
     )
 
 
+def test_the_loader_hands_out_its_data_and_a_read_only_mask():
+    # Its own arrays, without a copy: changed through as_dict, the loader
+    # reads the change. The mask is read only.
+    x = Input("ro_x", dim=1, seq=-1, tw=1)
+    model = Modely("ro_model", inputs=[x], outputs=[Output("ro_out", x)]).build()
+    loader = DataLoader(
+        model,
+        source=[
+            {"ro_x": np.arange(1, 6, dtype=np.float32)},
+            {"ro_x": np.arange(10, 13, dtype=np.float32)},
+        ],
+        seq_length="full",
+    )
+    assert loader.mask is not None
+    with pytest.raises(ValueError, match="read-only"):
+        loader.mask[...] = False
+    with pytest.raises(AttributeError):
+        loader.mask = None  # type: ignore[misc]
+
+    loader.as_dict()["ro_x"][0] = 7.0
+    np.testing.assert_array_equal(loader.get_input("ro_x")[0], 7.0)
+    np.testing.assert_array_equal(loader[0]["ro_x"], 7.0)
+    before = loader.as_dict()["ro_x"].copy()
+    assert not hasattr(loader, "get_step") and not hasattr(loader, "inputs")
+    # get_samples gives copies, to change at will.
+    samples = loader.get_samples(1)
+    samples["ro_x"][...] = 0
+    np.testing.assert_array_equal(loader.as_dict()["ro_x"], before)
+
+
 def test_full_sequence_leaves_the_inner_levels_alone():
     x = Input("full_nested_x", dim=1, seq=(-1, 2), tw=1)
     model = Modely(
@@ -841,8 +871,8 @@ def test_windowed_data_reads_several_dynamic_lengths_from_its_shape():
     assert loader.as_dict()["dyn2_x"].shape == (16, 4, 6, 1, 1)
     assert loader.mask is None
 
-    model.train(loader, epochs=200, batch_size=16, lr=5e-2, printer=None, **CONVERGED)
-    np.testing.assert_allclose(np.ravel(gain.value_numpy), [3.0], atol=1e-2)  # type: ignore
+    model.train(loader, epochs=200, batch_size=16, lr=5e-2, verbose=False, **CONVERGED)
+    np.testing.assert_allclose(np.ravel(gain.value), [3.0], atol=1e-2)  # type: ignore
 
 
 def test_windowed_rollouts_of_different_lengths_are_padded_and_masked():

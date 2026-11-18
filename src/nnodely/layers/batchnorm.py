@@ -268,7 +268,7 @@ class BatchNorm(Layer):
     array([[[1.],
             [3.]]], dtype=float32)
     >>> data = DataLoader(model, {"w": sample, "target": np.array([[[-1.0], [1.0]]])}, windowed=True)
-    >>> history = model.train(data, epochs=1, printer=None)
+    >>> history = model.train(data, epochs=1, verbose=False)
     >>> keras.ops.convert_to_numpy(model({"w": sample})["y"])  # mean 2, variance 1
     array([[[-1.],
             [ 1.]]], dtype=float32)
@@ -352,7 +352,7 @@ class BatchNorm(Layer):
         # that cannot be probed with a dummy tensor.
         return inputs[0].shape
 
-    def input_signature(self, xs) -> tuple:
+    def _input_signature(self, xs) -> tuple:
         # The statistics hold one value for each position of the normalized
         # axis, whatever the length of the others: a dynamic sequence and a
         # fixed one share them.

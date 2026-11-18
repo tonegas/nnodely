@@ -562,20 +562,20 @@ def test_a_minimizer_is_renamed_through_minimizers():
     t = Input("rn_t", tw=1)
     model.minimize("rn_fit", y, t).minimize("rn_other", y * 2.0, t).build()
 
-    model.minimizers["rn_fit"]["name"] = "rn_track"
-    assert [row["name"] for row in model.minimizers] == ["rn_track", "rn_other"]
-    assert model.minimizers["rn_track"]["source"] is y
+    model.minimizers["rn_fit"].name = "rn_track"
+    assert [row.name for row in model.minimizers] == ["rn_track", "rn_other"]
+    assert model.minimizers["rn_track"].source is y
     with pytest.raises(KeyError, match="no minimizer named 'rn_fit'"):
         model.minimizers["rn_fit"]
     # Each name its own; a name like another's validation key is no clash,
     # its loss is logged as loss_val_rn_other, that one's as val_loss_rn_other.
     with pytest.raises(ValueError, match="has a minimizer named 'rn_other' already"):
-        model.minimizers["rn_track"]["name"] = "rn_other"
-    model.minimizers["rn_track"]["name"] = "val_rn_other"
-    model.minimizers["val_rn_other"]["name"] = "rn_track"
+        model.minimizers["rn_track"].name = "rn_other"
+    model.minimizers["rn_track"].name = "val_rn_other"
+    model.minimizers["val_rn_other"].name = "rn_track"
     # The loss is logged under the new name from the next train.
     data = DataLoader(model, {"rn_x": np.arange(8.0), "rn_t": np.arange(8.0)})
-    trained = model.train(data, epochs=1, printer=None)
+    trained = model.train(data, epochs=1, verbose=False)
     assert "loss_rn_track" in trained.losses
 
 
@@ -727,7 +727,7 @@ def test_every_table_is_picked_by_name_or_index_and_renamed(table):
     for index, name in printed:
         same = items[name]
         assert same is items[index] or (
-            table == "minimizers" and same["source"] is items[index]["source"]
+            table == "minimizers" and same.source is items[index].source
         )
     assert items[-1].name == printed[-1][1]
     assert [item.name for item in items[:1]] == [printed[0][1]]
@@ -749,14 +749,51 @@ def test_every_table_is_picked_by_name_or_index_and_renamed(table):
     assert len(model(data)) == 2
 
 
+@pytest.mark.parametrize(
+    "table", ["parameters", "models", "inputs", "outputs", "minimizers"]
+)
+def test_every_table_refuses_to_be_changed_in_place(table):
+    # Made anew at every read: a tuple, so that changing it, which would
+    # leave the model as it was, raises instead.
+    model = _full_model()
+    items = getattr(model, table)
+    before = [item.name for item in items]
+
+    assert isinstance(items, tuple)
+    for method in ("append", "extend", "insert", "pop", "remove", "sort", "reverse"):
+        assert not hasattr(items, method)
+    assert hasattr(items, "clear") == (table == "minimizers")
+    with pytest.raises(TypeError):
+        items[0] = items[0]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del items[0]  # type: ignore[attr-defined]
+    assert [item.name for item in getattr(model, table)] == before
+
+
+def test_clearing_the_minimizers_removes_every_objective():
+    model = _full_model()
+    rows = model.minimizers
+
+    rows.clear()
+
+    assert len(model.minimizers) == 0
+    with pytest.raises(ValueError, match="No minimizers defined"):
+        model.build().train(
+            DataLoader(model, source={"all_x": np.ones(5), "all_w": np.ones(5)}),
+            verbose=False,
+        )
+
+
 def test_a_minimizer_is_renamed_as_any_object():
     model = _full_model()
 
-    # By attribute, as every other object, or by key.
+    # By attribute, as every other object, and never by key.
     model.minimizers[0].name = "all_track"
     assert [row.name for row in model.minimizers] == ["all_track", "all_reg"]
-    model.minimizers["all_reg"]["gain"] = 0.5
+    model.minimizers["all_reg"].gain = 0.5
     assert model.minimizers[1].gain == 0.5
+    with pytest.raises(TypeError):
+        model.minimizers[1]["gain"]  # type: ignore[index]
     # What it compares, or anything else, is not lost silently.
     with pytest.raises(TypeError, match="not its 'source'"):
         model.minimizers[0].source = model.outputs[1]
@@ -785,8 +822,8 @@ def test_a_validation_result_is_read_by_its_attributes():
     result = model.validate(data, verbose=False)
 
     # Each dictionary in the order of the minimizers table.
-    assert result.signals.keys() == ["all_fit", "all_reg"]
-    assert result.losses.keys() == ["loss", "loss_all_fit", "loss_all_reg"]
+    assert list(result.signals) == ["all_fit", "all_reg"]
+    assert list(result.losses) == ["loss", "loss_all_fit", "loss_all_reg"]
     # Not as a dict or a list: the error tells where the data is.
     with pytest.raises(TypeError, match=r"\.minimizers\['all_fit'\]"):
         result["all_fit"]
@@ -1066,7 +1103,7 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
 
     # Keyed by the Inputs themselves, as a call is: once refused as missing.
     data = DataLoader(model, {x: values, w: values, "dk_t": values})
-    assert data.inputs == ["dk_x", "dk_w", "dk_t"]
+    assert list(data.as_dict()) == ["dk_x", "dk_w", "dk_t"]
     np.testing.assert_array_equal(data.get_input(x).ravel(), values)
     # format by Input: once ignored, x read its own column.
     frame = pd.DataFrame({"dk_x": values, "dk_w": 100 + values, "dk_t": values})
@@ -1086,7 +1123,7 @@ def test_a_dataloader_resolves_its_keys_as_a_call_does():
     with pytest.raises(
         ValueError, match=r"reads the inputs \['dk_w2'\], which the data"
     ):
-        model.train(data, epochs=1, printer=None)
+        model.train(data, epochs=1, verbose=False)
 
 
 def test_a_loop_tells_a_state_inside_a_block_by_object():

@@ -127,7 +127,7 @@ def _logo_colour(x: int, y: int) -> tuple:
     return _BONE
 
 
-def splash(colour: bool = False) -> str:
+def _splash(colour: bool = False) -> str:
     """The splash as text, in colour when ``colour``."""
     from nnodely import __version__
 
@@ -175,4 +175,4 @@ def show_splash() -> None:
     except Exception:
         interactive = False
     if interactive:
-        print(splash(colour=_shows_colour(stream)))
+        print(_splash(colour=_shows_colour(stream)))

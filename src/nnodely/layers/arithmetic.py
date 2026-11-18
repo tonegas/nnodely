@@ -1577,14 +1577,6 @@ class ReduceImpl(keras.layers.Layer):
         return {**super().get_config(), "operation": self.operation, "axes": self.axes}
 
 
-@keras.saving.register_keras_serializable(package="nnodely")
-class SumImpl(ReduceImpl):
-    """The sum, as the Keras files exported by nnodely 2.0.0 name it."""
-
-    def __init__(self, axes, name=None, operation="sum", **kwargs):
-        super().__init__(operation, axes, name=name, **kwargs)
-
-
 class Reduction(Layer):
     """A reduction over the dim axes, which keeps them with length 1.
 

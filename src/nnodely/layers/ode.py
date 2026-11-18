@@ -8,7 +8,7 @@ from nnodely.core.stream import Stream
 
 # Butcher tableaux as (stage coefficients, weights): one row of `a` per stage
 # after the first, then the `b` row. Adding an explicit method is one entry.
-TABLEAUX = {
+_TABLEAUX = {
     "euler": ((), (1.0,)),
     "midpoint": (((0.5,),), (0.0, 1.0)),
     "heun": (((1.0,),), (0.5, 0.5)),
@@ -235,15 +235,15 @@ def Ode(
 
     .. versionadded:: 2.0
     """
-    if method not in TABLEAUX:
+    if method not in _TABLEAUX:
         raise ValueError(
-            f"Ode method {method!r} is not available; choose one of {sorted(TABLEAUX)}."
+            f"Ode method {method!r} is not available; choose one of {sorted(_TABLEAUX)}."
         )
 
     single_state = not isinstance(states, (list, tuple))
     states = [states] if single_state else list(states)
 
-    stage_coefficients, weights = TABLEAUX[method]
+    stage_coefficients, weights = _TABLEAUX[method]
     stages = [_derivatives(f, states, args)]
     for coefficients in stage_coefficients:
         stage = [

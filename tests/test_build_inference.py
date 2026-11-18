@@ -184,7 +184,7 @@ def test_inference_runs_with_the_trained_weights():
     x = _windows()
     before = to_numpy(model({"trained_x": x})["trained_pred"])
 
-    model.train(train_data=data, epochs=3, batch_size=8, lr=1e-2, printer=None)
+    model.train(train_data=data, epochs=3, batch_size=8, lr=1e-2, verbose=False)
 
     after = to_numpy(model({"trained_x": x})["trained_pred"])
     assert model._keras_model is not None
@@ -382,7 +382,7 @@ def test_a_build_that_fails_leaves_the_model_as_it_was():
         model,
         source={"failed_build_y": np.zeros(12), "failed_build_target": np.zeros(12)},
     )
-    model.train(data, epochs=1, printer=None)
+    model.train(data, epochs=1, verbose=False)
 
 
 def test_a_file_that_is_not_an_nnodely_2_model_is_refused(tmp_path):

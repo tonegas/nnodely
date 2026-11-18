@@ -26,7 +26,7 @@ import numpy as np
 
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank, slice_axis
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.input import (
     Input,
     _check_history,
@@ -693,7 +693,7 @@ class Integrate:
         init_rate: Stream | float | None = None,
         name: str | None = None,
     ):
-        from nnodely.core.dag import next_name
+        from nnodely.core.dag import _next_name
 
         self._dt = _validate_dt(dt, "Integrate")
         self._method = _validate_method(method, "Integrate")
@@ -704,11 +704,11 @@ class Integrate:
                 f"only the trapezoidal method reads, not {method!r}."
             )
         self._init_rate = _validate_init("Integrate", init_rate, "init_rate")
-        self.name = next_name("Integrate") if name is None else name
+        self.name = _next_name("Integrate") if name is None else name
         self._calls = 0
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             dt=self._dt,
@@ -937,7 +937,7 @@ class _FiniteDifference(Layer):
     # Symbolic graph logic
     # ------------------------------------------------------------------
     @property
-    def past(self) -> int:
+    def _past(self) -> int:
         """Samples of history the stencil needs before the first one."""
         return self._poly_order
 
@@ -953,17 +953,6 @@ class _FiniteDifference(Layer):
                 f"{self.name}: {type(self).__name__} expects a Stream input, got "
                 f"{type(function).__name__}."
             )
-
-    # ------------------------------------------------------------------
-    # Keras layer logic
-    # ------------------------------------------------------------------
-    def call(self, xs):
-        signature = self.input_signature(xs)
-        stale = self._layer_signature is not None and self._layer_signature != signature
-        if self._layer is None or stale:
-            self._layer = self.build_layer()
-        self._layer_signature = signature
-        return self._layer(xs if len(xs) > 1 else xs[0])
 
     # ------------------------------------------------------------------
     # Serialization
@@ -1207,7 +1196,7 @@ class DerivativeStep(_FiniteDifference):
         self._check_function(function)
         self._needs_window(function)
         if history:
-            _check_history(self.name, history[0], function, self.past)
+            _check_history(self.name, history[0], function, self._past)
         # One derivative per sample: the window is preserved, so the result
         # stays aligned with the signal it came from.
         return function.shape
@@ -1450,7 +1439,7 @@ class Derivative(_FiniteDifference):
                 "time window with DerivativeStep."
             )
         if isinstance(self._init, Stream):
-            _check_history(self.name, self._init, function, self.past)
+            _check_history(self.name, self._init, function, self._past)
 
         # Every call differentiates a signal of its own, so each has its own
         # past.
@@ -1461,7 +1450,7 @@ class Derivative(_FiniteDifference):
             f"{call_name}_{function.name}",
             dim=function.dim,
             seq=_declared_seq(function),
-            tw=self.past,
+            tw=self._past,
         )
         past._hidden = True
         derivative = DerivativeStep(

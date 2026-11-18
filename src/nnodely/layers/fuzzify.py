@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 import keras
 import numpy as np
 
-from nnodely.core.dag import next_name
+from nnodely.core.dag import _next_name
 from nnodely.core.layer import Layer
 from nnodely.core.shape import expand_to_rank
-from nnodely.core.stream import Stream, class_path, registered_class
+from nnodely.core.stream import Stream, _class_path, _registered_class
 from nnodely.layers.function import KerasFunction, _is_keras_layer
 from nnodely.layers.input import Input
 from nnodely.layers.parameter import Parameter, _Value
@@ -1116,7 +1116,7 @@ class Fuzzify(Layer):
         normalize: bool = False,
         name: str | None = None,
     ):
-        name = next_name("Fuzzify") if name is None else name
+        name = _next_name("Fuzzify") if name is None else name
         self._bounds = _bounds(bounds, name)
         self._normalize = bool(normalize)
         self._centers, self._center_streams = _centers(centers, name)
@@ -1277,7 +1277,7 @@ class Fuzzify(Layer):
                 "function": self._function_specs(),
                 "layers": [
                     {
-                        "class_name": class_path(type(layer)),
+                        "class_name": _class_path(type(layer)),
                         "config": layer.get_config(),
                         "weights": len(probe._preds) - 1,
                     }
@@ -1304,7 +1304,7 @@ class Fuzzify(Layer):
         layers = []
         for saved in config["layers"]:
             weights, rest = rest[: saved["weights"]], rest[saved["weights"] :]
-            layer_class = cast(type[Layer], registered_class(saved["class_name"]))
+            layer_class = cast(type[Layer], _registered_class(saved["class_name"]))
             if layer_class is None:
                 raise ValueError(
                     f"Fuzzify {config['name']!r} was saved with a "
@@ -1516,7 +1516,7 @@ def _current_value(stream: Stream, owner: str):
             f"{owner}: plot() draws centers and widths held by Parameters or "
             f"Constants; {stream.name!r} is computed, with no value of its own."
         )
-    value = stream.value if stream._variable is None else stream.value_numpy
+    value = stream.value
     if value is None:
         raise ValueError(
             f"{owner}: {stream.name!r} has no value until its model is built."

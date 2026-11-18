@@ -39,7 +39,7 @@ def _requirements(extra=None):
 
 def test_every_installation_exports_and_runs_onnx():
     # Once an onnx extra of its own: ONNX export is part of every model, and
-    # validate_onnx runs the file.
+    # run_onnx runs the file.
     names = [re.split(r"[<>=; ]", requirement)[0] for requirement in _requirements()]
 
     assert "onnx" in names and "onnxruntime" in names

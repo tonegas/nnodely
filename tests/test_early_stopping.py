@@ -27,7 +27,7 @@ def _fit():
 def test_without_early_stopping_every_epoch_runs():
     model, data = _fit()
 
-    history = model.train(data, epochs=4, batch_size=16, printer=None)
+    history = model.train(data, epochs=4, batch_size=16, verbose=False)
 
     assert len(history.losses["loss"]) == 4
 
@@ -39,9 +39,8 @@ def test_a_monitored_name_stops_with_keras_early_stopping():
         data,
         epochs=50,
         batch_size=16,
-        printer=None,
-        early_stopping="loss",
-        early_stopping_kwargs={"patience": 2, "min_delta": NEVER_BETTER},
+        verbose=False,
+        early_stopping={"monitor": "loss", "patience": 2, "min_delta": NEVER_BETTER},
     )
 
     assert len(history.losses["loss"]) == 3
@@ -55,9 +54,12 @@ def test_a_minimizer_validation_loss_can_be_monitored():
         val_data=data,
         epochs=50,
         batch_size=16,
-        printer=None,
-        early_stopping="val_loss_fit",
-        early_stopping_kwargs={"patience": 1, "min_delta": NEVER_BETTER},
+        verbose=False,
+        early_stopping={
+            "monitor": "val_loss_fit",
+            "patience": 1,
+            "min_delta": NEVER_BETTER,
+        },
     )
 
     assert len(history.losses["val_loss_fit"]) == 2
@@ -70,7 +72,7 @@ def test_a_configuration_builds_keras_early_stopping():
         data,
         epochs=50,
         batch_size=16,
-        printer=None,
+        verbose=False,
         early_stopping={
             "monitor": "loss_fit",
             "patience": 1,
@@ -84,12 +86,16 @@ def test_a_configuration_builds_keras_early_stopping():
 def test_a_keras_early_stopping_instance_restores_the_best_weights():
     model, data = _fit()
     weights_per_epoch = []
-    recorder = keras.callbacks.LambdaCallback(
-        on_epoch_end=lambda epoch, logs: weights_per_epoch.append(
-            [to_numpy(w) for w in model._keras_model.get_weights()]  # type: ignore[union-attr]
-        )
-    )
-    stopper = keras.callbacks.EarlyStopping(
+
+    class RecordingStopper(keras.callbacks.EarlyStopping):
+        # The weights of every epoch, before the stopper restores the best.
+        def on_epoch_end(self, epoch, logs=None):
+            weights_per_epoch.append(
+                [to_numpy(w) for w in model._keras_model.get_weights()]  # type: ignore[union-attr]
+            )
+            super().on_epoch_end(epoch, logs)
+
+    stopper = RecordingStopper(
         monitor="loss",
         patience=1,
         min_delta=NEVER_BETTER,  # type: ignore[arg-type]
@@ -97,7 +103,7 @@ def test_a_keras_early_stopping_instance_restores_the_best_weights():
     )
 
     history = model.train(
-        data, epochs=50, batch_size=16, lr=0.1, printer=recorder, early_stopping=stopper
+        data, epochs=50, batch_size=16, lr=0.1, verbose=False, early_stopping=stopper
     )
 
     # Only the first epoch counted as an improvement: its weights come back.
@@ -130,7 +136,7 @@ def test_a_custom_callback_stops_training_when_it_says_so():
         epochs=500,
         batch_size=16,
         lr=0.05,
-        printer=None,
+        verbose=False,
         early_stopping=StopBelow("loss_fit", 1e-3),
     )
 
@@ -140,47 +146,42 @@ def test_a_custom_callback_stops_training_when_it_says_so():
     assert all(loss >= 1e-3 for loss in losses[:-1])
 
 
-def test_the_legacy_printer_shows_the_epoch_training_stopped_at(capsys):
+def test_the_loss_table_shows_the_epoch_training_stopped_at(capsys):
     model, data = _fit()
 
     model.train(
         data,
         epochs=100,  # a row every 5 epochs
         batch_size=16,
-        printer="legacy",
-        early_stopping="loss",
-        early_stopping_kwargs={"patience": 1, "min_delta": NEVER_BETTER},
+        early_stopping={"monitor": "loss", "patience": 1, "min_delta": NEVER_BETTER},
     )
 
     assert "2/100" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
-    "early_stopping, kwargs, error, message",
+    "early_stopping, error, message",
     [
-        ("los", None, ValueError, "monitors 'los', which training does not log"),
-        ("val_loss", None, ValueError, "Pass val_data to monitor a validation loss"),
+        ("los", ValueError, "monitors 'los', which training does not log"),
+        ("val_loss", ValueError, "Pass val_data to monitor a validation loss"),
         (
             keras.callbacks.EarlyStopping(),  # monitors val_loss by default
-            None,
             ValueError,
             "Pass val_data",
         ),
-        ({"monitor": "loss"}, {"patience": 2}, ValueError, "only be used when"),
-        (None, {"patience": 2}, ValueError, "needs early_stopping"),
-        (5, None, TypeError, "early_stopping must be"),
+        ({"monitor": "los"}, ValueError, "monitors 'los'"),
+        (5, TypeError, "early_stopping must be"),
     ],
     ids=[
         "misspelled",
         "validation_without_val_data",
         "keras_default_without_val_data",
-        "kwargs_with_a_configuration",
-        "kwargs_alone",
+        "misspelled_in_a_configuration",
         "not_a_callback",
     ],
 )
 def test_an_early_stopping_that_could_never_work_is_refused(
-    early_stopping, kwargs, error, message
+    early_stopping, error, message
 ):
     # Keras itself only warns at every epoch about a quantity that is never
     # logged, and trains to the end.
@@ -190,7 +191,6 @@ def test_an_early_stopping_that_could_never_work_is_refused(
         model.train(
             data,
             epochs=3,
-            printer=None,
+            verbose=False,
             early_stopping=early_stopping,
-            early_stopping_kwargs=kwargs,
         )

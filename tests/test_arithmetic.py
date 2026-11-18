@@ -26,12 +26,10 @@ from nnodely.layers.arithmetic import (
     Sqrt,
     Square,
     Sum,
-    SumImpl,
     Negative,
 )
 from nnodely.layers.trigonometric import Acosh, Asinh, Atanh, Cosh, Sinh
 from conftest import to_numpy
-import keras
 import numpy as np
 import pytest
 
@@ -107,7 +105,7 @@ def test_unary_minus():
     x = Input("x", dim=2, tw=3)
     negated = -x
     assert isinstance(negated, Negative)
-    assert negated.dimensions == x.dimensions
+    assert negated.shape.dimensions == x.shape.dimensions
     out = Output("out", -(x * 2.0) + x)
     model = Modely("unary_minus_model", inputs=[x], outputs=[out])
     model.build()
@@ -169,7 +167,7 @@ def test_maximum_minimum():
     largest = Maximum([x, y, bound])
     smallest = Minimum()([x, bound])
     assert isinstance(largest, Maximum)
-    assert largest.dimensions == ((), 3, (2,))
+    assert largest.shape.dimensions == ((), 3, (2,))
     model = Modely(
         "arithmetic_extremum_model",
         inputs=[x, y],
@@ -263,7 +261,7 @@ def test_cross():
         "turned": Cross()([omega, a]),  # omega applies to every sample
         "axis": Cross(axis=0)([m, n]),
     }
-    assert relations["turned"].dimensions == ((), 2, (3,))
+    assert relations["turned"].shape.dimensions == ((), 2, (3,))
     model = Modely(
         "arithmetic_cross_model",
         inputs=[a, b, m, n],
@@ -334,17 +332,6 @@ def test_math_layers_save_load_and_export(tmp_path):
     nodes = {node.name: node for node in restored.flatten()._order}
     assert nodes["cross_layer"].get_config() == {"name": "cross_layer", "axis": -1}
     assert nodes["norm_layer"].get_config() == {"name": "norm_layer", "axis": 0}
-
-
-def test_sum_impl_of_2_0_0_keras_files_still_loads():
-    # ------- Keras files exported by 2.0.0 name the sum SumImpl -------
-    assert keras.saving.get_registered_object("nnodely>SumImpl") is SumImpl
-    layer = SumImpl.from_config({"name": "old_sum", "axes": [2]})
-    values = np.random.uniform(-1.0, 1.0, size=(2, 3, 4))
-    np.testing.assert_allclose(
-        to_numpy(layer(values)), values.sum(axis=2, keepdims=True), rtol=1e-5
-    )
-    assert SumImpl.from_config(layer.get_config()).operation == "sum"
 
 
 def test_arithmetic_save_load(tmp_path):
@@ -625,8 +612,8 @@ def test_binary_ops_broadcast_the_dims_as_keras(tmp_path):
         "both_ways": column + line,
         "cross": Cross()([row, matrix]),
     }
-    assert relations["both_ways"].dimensions == ((), 3, (2, 3))
-    assert relations["cross"].dimensions == ((), 3, (2, 3))
+    assert relations["both_ways"].shape.dimensions == ((), 3, (2, 3))
+    assert relations["cross"].shape.dimensions == ((), 3, (2, 3))
     model = Modely(
         "arithmetic_keras_dims_model",
         inputs=[x, cols, row, square, column, line, matrix],

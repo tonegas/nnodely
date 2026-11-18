@@ -244,13 +244,14 @@ lists them, all but those its ``flags`` column marks ``target``.
 Step 7: weights
 ---------------
 
-After ``build()``, the stream returned by a layer with weights exposes them
-as Keras variables:
+A layer with weights, and the stream it returns, give them by name with
+``weights``, as :class:`~nnodely.Parameter` objects:
 
 .. code-block:: python
 
-   print(slope.kernel.shape, slope.bias.shape)
-   slope.kernel.assign(np.zeros((3, 1), dtype="float32"))
+   kernel, bias = slope.weights["kernel"], slope.weights["bias"]
+   print(kernel.value.shape, bias.value.shape)
+   kernel.param.assign(np.zeros((3, 1), dtype="float32"))
    print(len(vehicle.parameters))
 
 .. code-block:: text
@@ -288,7 +289,6 @@ Printing a model shows its name, its inputs, its outputs and its objectives.
 
 .. code-block:: python
 
-   vehicle.summary()                    # the Keras summary of the built model
    vehicle.export_html("model_html")    # an interactive graph
 
 :meth:`~nnodely.Modely.export_html` writes an interactive page to open in a
@@ -320,9 +320,9 @@ recovers :math:`f = \sin z + 0.5 z^2`:
 
    zs = np.linspace(-2.0, 2.0, 400)
    data = DataLoader(equation_model, source={"z": zs, "f_measured": np.sin(zs) + 0.5 * zs**2})
-   equation_model.train(data, epochs=100, batch_size=32, lr=0.02, printer=None)
+   equation_model.train(data, epochs=100, batch_size=32, lr=0.02, verbose=False)
    learner.threshold = 0.01   # drop the coefficients smaller than 0.01 in magnitude
-   equation_model.train(data, epochs=30, batch_size=32, lr=0.002, printer=None)
+   equation_model.train(data, epochs=30, batch_size=32, lr=0.002, verbose=False)
    equation = learner.plot()
 
 Common errors

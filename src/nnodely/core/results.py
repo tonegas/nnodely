@@ -17,21 +17,7 @@ from nnodely.layers.parameter import Constant
 from nnodely.utils.printers import _table
 
 
-class Fields(dict):
-    """A dict whose ``keys()``, ``values()`` and ``items()`` are lists, as
-    those of a table of a model are."""
-
-    def keys(self) -> list:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return list(super().keys())
-
-    def values(self) -> list:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return list(super().values())
-
-    def items(self) -> list:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return list(super().items())
-
-
-def loss_name(loss_fn: Any) -> str:
+def _loss_name(loss_fn: Any) -> str:
     """The name of a loss function, such as ``"mean_squared_error"``."""
     for attribute in ("name", "__name__"):
         name = getattr(loss_fn, attribute, None)
@@ -40,7 +26,7 @@ def loss_name(loss_fn: Any) -> str:
     return type(loss_fn).__name__ if loss_fn is not None else "mse"
 
 
-def target_label(target) -> str | float:
+def _target_label(target) -> str | float:
     """How the target of a minimizer prints: a Constant of one value (a
     number given as the target) as that number, any other by its name."""
     if (
@@ -52,22 +38,19 @@ def target_label(target) -> str | float:
     return target.name
 
 
-def minimizer_fields(minimizers: list[dict]) -> Fields:
+def _minimizer_fields(minimizers: list[dict]) -> dict:
     """A snapshot of the minimizers of a model, by name: the source, the
     target, the loss and the gain of each, as they print. Changing the model
     later leaves it as it is."""
-    return Fields(
-        (
-            m["name"],
-            Fields(
-                source=m["source"].name,
-                target=target_label(m["target"]),
-                loss=loss_name(m["loss"]),
-                gain=m["gain"],
-            ),
+    return {
+        m["name"]: dict(
+            source=m["source"].name,
+            target=_target_label(m["target"]),
+            loss=_loss_name(m["loss"]),
+            gain=m["gain"],
         )
         for m in minimizers
-    )
+    }
 
 
 def _value(number: float) -> str:
@@ -82,8 +65,8 @@ class _Result:
     _dicts: tuple[str, ...] = ("minimizers", "losses")
     model: str
     samples: int
-    minimizers: Fields
-    losses: Fields
+    minimizers: dict
+    losses: dict
 
     def _head(self) -> str:
         """The fields the ``repr`` opens with."""
@@ -144,8 +127,8 @@ class TrainResult(_Result):
     >>> model = Modely("offset", inputs=[x], outputs=[y])
     >>> model = model.minimize("fit", y, Input("y_meas", tw=1)).build()
     >>> data = DataLoader(model, source={"x": np.arange(8.0), "y_meas": np.arange(8.0)})
-    >>> trained = model.train(data, val_data=data, epochs=2, batch_size=4, printer=None)
-    >>> trained.epochs, trained.samples, trained.losses.keys()
+    >>> trained = model.train(data, val_data=data, epochs=2, batch_size=4, verbose=False)
+    >>> trained.epochs, trained.samples, list(trained.losses)
     (2, 8, ['loss', 'loss_fit', 'val_loss', 'val_loss_fit'])
     >>> trained.minimizers["fit"]
     {'source': 'y', 'target': 'y_meas', 'loss': 'mean_squared_error', 'gain': 1.0}
@@ -153,7 +136,7 @@ class TrainResult(_Result):
     .. versionadded:: 2.0
     """
 
-    def __init__(self, *, model: str, samples: int, minimizers: Fields, losses: Fields):
+    def __init__(self, *, model: str, samples: int, minimizers: dict, losses: dict):
         self.model = model
         self.samples = samples
         self.minimizers = minimizers
@@ -254,15 +237,15 @@ class ValidationResult(_Result):
         *,
         model: str,
         samples: int,
-        minimizers: Fields,
-        losses: Fields,
-        signals: Fields,
+        minimizers: dict,
+        losses: dict,
+        signals: dict,
     ):
         self.model = model
         self.samples = samples
         self.minimizers = minimizers
         self.losses = losses
-        self.signals: Fields = signals
+        self.signals: dict = signals
         self.figures: list[str] = []
 
     def _head(self) -> str:
@@ -315,7 +298,7 @@ class ValidationResult(_Result):
         from nnodely.utils import validation_plot
 
         losses = history.losses if isinstance(history, TrainResult) else history
-        self.figures = validation_plot.render(
+        self.figures = validation_plot._render(
             self, out_dir=out_dir, show=show, history=losses
         )
         return self.figures

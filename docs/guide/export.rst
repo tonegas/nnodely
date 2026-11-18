@@ -28,7 +28,7 @@ A built model can be stored in three formats:
      - :meth:`~nnodely.Modely.export_keras`, :meth:`~nnodely.Modely.import_keras`
      - Use the network as a plain ``keras.Model``, for inference.
    * - ONNX file (``.onnx``)
-     - :meth:`~nnodely.Modely.export_onnx`, :meth:`~nnodely.Modely.validate_onnx`
+     - :meth:`~nnodely.Modely.export_onnx`, :meth:`~nnodely.Modely.run_onnx`
      - Deploy the network outside Python, with any ONNX runtime.
 
 .. code-block:: python
@@ -144,7 +144,7 @@ Every backend exports, with the converter its extra installs:
 .. code-block:: python
 
    model.export_onnx("exports")    # writes exports/filter.onnx
-   outputs = Modely.validate_onnx("exports/filter.onnx", sample, return_dict=True)
+   outputs = Modely.run_onnx("exports/filter.onnx", sample, return_dict=True)
    print(outputs["y"].shape)
 
 .. code-block:: text
@@ -152,7 +152,7 @@ Every backend exports, with the converter its extra installs:
 
    (1, 1, 1)
 
-:meth:`~nnodely.Modely.validate_onnx` runs the exported file with ONNX
+:meth:`~nnodely.Modely.run_onnx` runs the exported file with ONNX
 Runtime, to compare it with the original model. The model is exported as
 declared, without its objectives: only its outputs, and the inputs they
 read.
@@ -167,14 +167,13 @@ Every axis of an ONNX file is fixed:
   ``seq`` gives; without it the export raises.
 
 The file refuses arrays of other shapes: export it again for another batch or
-another rollout length. ``input_signature`` sets the shape of every input
-instead, as Keras' ``Model.export`` takes it.
+another rollout length.
 
 .. code-block:: python
 
    model.export_onnx("exports", "filter_batch", batch_size=4)
    batch = {"x": np.random.rand(4, 10, 1).astype("float32")}
-   print(Modely.validate_onnx("exports/filter_batch.onnx", batch)[0].shape)
+   print(Modely.run_onnx("exports/filter_batch.onnx", batch)[0].shape)
 
 .. code-block:: text
    :class: output
@@ -264,5 +263,5 @@ See also
 :meth:`Modely.load <nnodely.Modely.load>`,
 :meth:`Modely.export_keras <nnodely.Modely.export_keras>`,
 :meth:`Modely.export_onnx <nnodely.Modely.export_onnx>`,
-:meth:`Modely.validate_onnx <nnodely.Modely.validate_onnx>`,
+:meth:`Modely.run_onnx <nnodely.Modely.run_onnx>`,
 :meth:`Modely.export_html <nnodely.Modely.export_html>`.

@@ -9,7 +9,7 @@ import keras
 import numpy as np
 
 
-SEED_ENVIRONMENT_VARIABLE = "NNODELY_SEED"
+_SEED_ENVIRONMENT_VARIABLE = "NNODELY_SEED"
 _seed: int | None = None
 
 
@@ -95,7 +95,7 @@ def set_seed(seed: int) -> None:
 
     global _seed
     _seed = seed
-    os.environ[SEED_ENVIRONMENT_VARIABLE] = str(seed)
+    os.environ[_SEED_ENVIRONMENT_VARIABLE] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
 
@@ -142,7 +142,7 @@ def get_seed() -> int | None:
 
 
 def _configure_seed_from_environment() -> None:
-    value = os.environ.get(SEED_ENVIRONMENT_VARIABLE)
+    value = os.environ.get(_SEED_ENVIRONMENT_VARIABLE)
     if value is None:
         return
 
@@ -150,7 +150,7 @@ def _configure_seed_from_environment() -> None:
         seed = int(value)
     except ValueError as exc:
         raise ValueError(
-            f"{SEED_ENVIRONMENT_VARIABLE} must contain an integer, got {value!r}."
+            f"{_SEED_ENVIRONMENT_VARIABLE} must contain an integer, got {value!r}."
         ) from exc
     set_seed(seed)
 

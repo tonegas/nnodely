@@ -35,7 +35,7 @@ Step 1: train the model
    signals = {"u": u_data, "y_target": y_data}
    train_data = DataLoader(model, source={k: v[:1500] for k, v in signals.items()})
    val_data = DataLoader(model, source={k: v[1500:] for k, v in signals.items()})
-   trained = model.train(train_data, epochs=40, batch_size=32, lr=1e-2, printer=None)
+   trained = model.train(train_data, epochs=40, batch_size=32, lr=1e-2, verbose=False)
 
 Step 2: validate
 ----------------
@@ -49,19 +49,21 @@ on a dataset, as training evaluates it:
 - the same mask of padded steps.
 
 Its loss is the one :meth:`~nnodely.Modely.train` logs as
-``val_loss_<objective>`` for the same data. ``out_dir`` saves the figures:
+``val_loss_<objective>`` for the same data. Its ``plot`` saves the figures
+to ``out_dir``:
 
 .. code-block:: python
 
-   result = model.validate(val_data, out_dir="validation", history=trained)
+   result = model.validate(val_data)
+   result.plot(out_dir="validation", history=trained)
 
 The result is read by its attributes, as the result of ``train``. ``print``
 shows a row per objective with its loss, and the total:
 
 .. code-block:: python
 
-   print(result.losses.keys())
-   print(result.signals.keys(), result.samples)
+   print(list(result.losses))
+   print(list(result.signals), result.samples)
 
 .. code-block:: text
    :class: output
@@ -107,9 +109,10 @@ is read for, with the error :math:`e = \hat y - y`:
      - The Pearson correlation of prediction and target; 0 for a prediction
        that never moves.
    * - ``non_finite``
-     - The values of the prediction that are NaN or infinite.
+     - The values of the prediction that are NaN or infinite. A count, read
+       as ``signal.non_finite``, as ``scored`` and ``missing`` are.
 
-The metrics are functions. Without arguments they give a number, over the
+The other metrics are functions. Without arguments they give a number, over the
 whole signal; ``seq=``, ``tw=`` and ``dim=`` keep those axes, and give a
 value per position along them:
 
@@ -144,7 +147,7 @@ mean.
 
 **Points.** A point is one sample at one step of the sequence and of the
 window: every step is scored. A NaN or infinite prediction is counted by
-``non_finite()``, and makes the metrics it is in NaN rather than being
+``non_finite``, and makes the metrics it is in NaN rather than being
 hidden.
 
 **Padded rollouts.** Simulations of different lengths loaded with
@@ -158,8 +161,9 @@ reach it: how the error grows with the prediction horizon.
 Step 4: plots
 -------------
 
-With ``out_dir``, the figures are saved as PNG files named after the model
-and, for an objective, after its index and its name:
+:meth:`~nnodely.core.results.ValidationResult.plot` draws the figures. With
+``out_dir``, they are saved as PNG files named after the model and, for an
+objective, after its index and its name:
 
 .. code-block:: python
 
@@ -175,8 +179,8 @@ target and the error over the scored points, a parity plot, the distribution
 of the error, and, for a signal with a sequence, the RMSE at each step. A
 second figure shows the loss curves when ``history``, the result of
 :meth:`~nnodely.Modely.train`, is given. ``show=True`` opens the figures in
-an interactive Matplotlib window. ``result.plot()`` draws them again, at any
-time.
+an interactive Matplotlib window. ``plot`` can be called again at any time,
+without validating again.
 
 Common errors
 -------------
@@ -192,7 +196,7 @@ Common errors
      - The target of that channel never moves.
      - Read the absolute metrics (``rmse``, ``mae``) for it.
    * - Every metric is NaN
-     - The prediction has NaN or infinite values: see ``non_finite()``.
+     - The prediction has NaN or infinite values: see ``non_finite``.
      - Check the model and the data for NaN.
    * - The loss differs from the RMSE squared
      - A rollout padded to the longest simulation: padded steps count in

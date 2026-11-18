@@ -183,7 +183,7 @@ def test_derivative_wrt_input_through_a_trainable_layer():
 
     values = np.array([[[1.0], [2.0], [3.0]]], dtype=np.float32)
     result = to_numpy(model({"fir_x": values})["dx"])
-    weights = to_numpy(fun.kernel).reshape(1, 3, 1)
+    weights = to_numpy(fun.weights["kernel"].param).reshape(1, 3, 1)
 
     assert result.shape == (1, 3, 1)
     np.testing.assert_allclose(result, weights, rtol=1e-5, atol=1e-5)
@@ -254,7 +254,7 @@ def test_differentiate_trains_a_parameter_kernel():
     model.build()
 
     data = DataLoader(model, source={"dk_x": np.ones((1, 1), dtype=np.float32)})
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, printer=None)
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, verbose=False)
 
     assert k.param is not None
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], rtol=1e-5)
@@ -859,7 +859,7 @@ def test_derivative_export_onnx(tmp_path):
 
     model.export_onnx(tmp_path, "derivative_export")
     path = tmp_path / "derivative_export.onnx"
-    result = Modely.validate_onnx(str(path), inputs, return_dict=True)
+    result = Modely.run_onnx(str(path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
@@ -889,9 +889,7 @@ def test_derivative_wrt_time_exports_as_ordinary_arithmetic():
         time_model.export_onnx(folder, "derivative_time")
         path = f"{folder}/derivative_time.onnx"
         values = np.array([[[1.0], [2.0]]], dtype=np.float32)
-        result = Modely.validate_onnx(
-            str(path), {"onnx_time_v": values}, return_dict=True
-        )
+        result = Modely.run_onnx(str(path), {"onnx_time_v": values}, return_dict=True)
         np.testing.assert_allclose(
             result["dt"],  # type: ignore
             np.array([[[10.0], [10.0]]], dtype=np.float32),
@@ -919,7 +917,7 @@ def test_train_through_a_derivative():
 
     data = DataLoader(model, source={"dtrain_x": np.ones((16, 1), dtype=np.float32)})
     history = model.train(
-        train_data=data, epochs=40, batch_size=4, lr=0.1, printer=None, **CONVERGED
+        train_data=data, epochs=40, batch_size=4, lr=0.1, verbose=False, **CONVERGED
     )
 
     after = float(to_numpy(model({"dtrain_x": values})["dx"]).ravel()[0])
@@ -1215,7 +1213,7 @@ def test_integrate_export_onnx(tmp_path):
 
     model.export_onnx(tmp_path, "integrate_export")
     onnx_path = tmp_path / "integrate_export.onnx"
-    onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
+    onnx_result = Modely.run_onnx(str(onnx_path), inputs, return_dict=True)
     np.testing.assert_allclose(
         onnx_result["integral"],  # type: ignore
         to_numpy(expected),
@@ -1599,7 +1597,7 @@ def test_integrate_init_export_onnx(tmp_path):
 
     model.export_onnx(tmp_path, "integrate_init_export")
     onnx_path = tmp_path / "integrate_init_export.onnx"
-    onnx_result = Modely.validate_onnx(str(onnx_path), inputs, return_dict=True)
+    onnx_result = Modely.run_onnx(str(onnx_path), inputs, return_dict=True)
     for name, value in expected.items():
         np.testing.assert_allclose(onnx_result[name], value, rtol=1e-4, atol=1e-4)  # type: ignore
 
@@ -1640,7 +1638,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
         },
     )
     history = model.train(
-        train_data=data, epochs=200, batch_size=8, lr=0.1, printer=None, **CONVERGED
+        train_data=data, epochs=200, batch_size=8, lr=0.1, verbose=False, **CONVERGED
     )
 
     # y[i] = dt*w*(i+1), so argmin_w sum_i (dt*w*(i+1) - c)^2 gives
@@ -1650,7 +1648,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
 
     assert history.losses["loss"][-1] < history.losses["loss"][0]
     np.testing.assert_allclose(
-        to_numpy(rate.kernel).ravel()[0], optimum, rtol=1e-2, atol=1e-2
+        to_numpy(rate.weights["kernel"].param).ravel()[0], optimum, rtol=1e-2, atol=1e-2
     )
     np.testing.assert_allclose(
         to_numpy(
@@ -1693,7 +1691,10 @@ def test_differentiate_has_the_shape_of_its_input():
     assert result.shape == (1, 5, 1)
     np.testing.assert_allclose(result[:, :2], 0.0, atol=1e-6)
     np.testing.assert_allclose(
-        result[:, 2:], to_numpy(fun.kernel).reshape(1, 3, 1), rtol=1e-5, atol=1e-5
+        result[:, 2:],
+        to_numpy(fun.weights["kernel"].param).reshape(1, 3, 1),
+        rtol=1e-5,
+        atol=1e-5,
     )
 
 

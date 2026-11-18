@@ -21,10 +21,10 @@ Guides: :doc:`../guide/models`, :doc:`../guide/training`,
    Modely
 
 An objective registered with :meth:`Modely.minimize` is a
-:class:`~nnodely.core.modely.Minimizer`, a row of :attr:`Modely.minimizers`:
+:class:`~nnodely.core.minimizer.Minimizer`, a row of :attr:`Modely.minimizers`:
 it is read, set and removed there, and never created directly.
 
-.. currentmodule:: nnodely.core.modely
+.. currentmodule:: nnodely.core.minimizer
 
 .. autosummary::
    :toctree: generated

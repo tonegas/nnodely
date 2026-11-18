@@ -55,23 +55,23 @@ a row of a printed table has the fields of the object it stands for.
 - **`Modely.minimizers`**: the objectives a model trains, not those of the
   models it calls, printed as a table of their source and target, loss and
   gain. Setting the gain, loss or name of a row changes that objective from
-  the next `train()`: `model.minimizers[0]["gain"] = 0.1`.
-  `model.minimizers[name].remove()` removes one; `Minimizer`, a row, is in
-  the API reference.
+  the next `train()`: `model.minimizers[0].gain = 0.1`.
+  `model.minimizers[name].remove()` removes one, `model.minimizers.clear()`
+  all of them; `Minimizer`, a row, is in the API reference. Every table of a
+  model (`inputs`, `outputs`, `parameters`, `models`, `minimizers`) is a
+  tuple, read only.
 - **`train()` returns a `TrainResult`**, read by its attributes: `model`,
   `samples`, `epochs`, `minimizers` (a snapshot) and `losses`, an array per
   epoch under the keys Keras logs: `loss`, `loss_<objective>` and their
   `val_` versions. The model does not keep the result.
 - **Early stopping in `train()`**: the name of a monitored loss, one of the
-  keys of `losses` (made into a Keras `EarlyStopping` with
-  `early_stopping_kwargs`), its configuration, or any callback, Keras's or
+  keys of `losses` (made into a Keras `EarlyStopping`), its configuration
+  (`{"monitor": "val_loss", "patience": 10}`), or any callback, Keras's or
   your own.
-- **Training printers** `"tiny"`, `"legacy"` (the default) and `"nnodely"`,
-  also as the classes `TinyPrinter`, `LegacyPrinter` and `NNodelyPrinter`,
-  or any Keras callback. The `"nnodely"` printer charts the total loss along
-  the epochs, on a log scale. In a notebook, `"nnodely"` and `"tiny"` redraw
-  one output of the cell in place, a few times a second. A loss the logs lack
-  is left blank, and the total row is bold.
+- **The progress of `train()`**, with `verbose=True` (the default): a table
+  of the losses of every objective, train and val, a row per sampled epoch,
+  then the training time. `verbose=False` prints nothing. A loss the logs
+  lack is left blank.
 - **`validate()` returns a `ValidationResult`**, read as a `TrainResult`
   is: `model`, `samples`, `minimizers`, `losses` (`loss`,
   `loss_<objective>`), `signals` and `figures`. Every objective is scored as
@@ -137,9 +137,9 @@ a row of a printed table has the fields of the object it stands for.
   axes, as the elements of a `Fir`, or with `shared_kernel=True` one for all.
 - **The weights of a layer are `Parameter`s**, predecessors of the layer in
   the graph. `kernel` and `bias` of `Fir` and `Linear` are each a
-  `Parameter`, of the shape of `layer.kernel` or `layer.bias`, or a Keras
+  `Parameter`, of the shape of the weight, or a Keras
   initializer, by name or object, from which the layer makes one, a
-  `Weight` (a `Parameter` subclass) named `<layer>_kernel` or
+  `Parameter` named `<layer>_kernel` or
   `<layer>_bias`. `bias=False` leaves the bias out. Assigning, training or
   freezing the Parameter changes the layer, and layers given one Parameter
   share it. The slopes of a `PReLU` (`<layer>_alpha`) and the scale and
@@ -196,7 +196,7 @@ a row of a printed table has the fields of the object it stands for.
   prints the Parameter of each weight (its initializer before the first
   call) and the shape of its last call, `Fir(name=..., kernel=...,
   bias=..., shape=...)`. `Minimizer`, `Loop`, `Integrate`, `LocalModel`,
-  `EquationLearner` and the printers print the same way. `print(model)` is a
+  `EquationLearner` print the same way. `print(model)` is a
   table of the Inputs it reads, its outputs and its objectives, with the
   number of Parameters and `(built)`. `print(loader)` is a row per input,
   with its sequence as the loader resolved it, its window, its dim and the
@@ -389,7 +389,7 @@ a row of a printed table has the fields of the object it stands for.
   every model, a weight read from several Keras graphs (a body rolled out by
   two Loops, a Parameter read inside and outside a body, several `Gradient`
   of one relation) written once per graph with the same value.
-  **`export_onnx` and `Modely.validate_onnx`** on every backend, through
+  **`export_onnx` and `Modely.run_onnx`** on every backend, through
   tf2onnx, the PyTorch exporter or jax2onnx. Every axis
   of the file is fixed: the batch is `batch_size` samples, one by default,
   and a sequence of dynamic length, such as a rollout of `model.loop()`, is
@@ -533,7 +533,7 @@ a row of a printed table has the fields of the object it stands for.
 - **The visualizers** (`TextVisualizer`, `MPLVisualizer`,
   `MPLNotebookVisualizer`), **`StandardExporter`**, **`logger`** and the
   initializers `init_negexp`, `init_lin`, `init_constant`, `init_exp`.
-  Training prints through a printer, validation draws its own figures, the
+  Training prints its progress table, validation draws its own figures, the
   model saves and exports itself, and a `Parameter` takes a Keras
   initializer or a `value`.
 - **`Identity`** is no longer exported: it is `nnodely.core.layer.Identity`.
@@ -560,8 +560,8 @@ a row of a printed table has the fields of the object it stands for.
 | `model.resetSeed(seed)` | `set_seed(seed)` |
 | `saveModel` / `loadModel` | `model.save(path)` / `Modely.load(path)` |
 | `exportPythonModel` / `importPythonModel`, `saveTorchModel` / `loadTorchModel` | `model.export_keras(path)` / `Modely.import_keras(file)` |
-| `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.validate_onnx(file, inputs)` |
-| `exportReport`, the visualizers | `model.validate(data, out_dir=...)` figures, a training `printer`, `model.export_html(path)` |
+| `exportONNX` / `onnxInference` | `model.export_onnx(path)` / `Modely.run_onnx(file, inputs)` |
+| `exportReport`, the visualizers | `model.validate(data).plot(out_dir=...)` figures, the training progress (`verbose`), `model.export_html(path)` |
 | `StandardExporter`, `getWorkspace()` | the methods of the model, with the path given to each |
 | `Fir(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Fir(features, kernel=..., bias=...)`: each a `Parameter` or an initializer, and `bias` also `True` or `False` |
 | `Linear(output_dimension, W=..., b=..., W_init=..., b_init=...)` | `Linear(features, kernel=..., bias=...)`, as `Fir` |

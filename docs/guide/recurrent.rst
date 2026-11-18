@@ -167,7 +167,7 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
    states = np.stack([position, velocity], axis=-1)
    data = {"s0": states[:-1], "F_seq": force[:-1], "s_next": states[1:]}
    train_data = DataLoader(simulator, source=data, step=5)
-   history = simulator.train(train_data, epochs=10, batch_size=32, lr=1e-2, printer=None)
+   history = simulator.train(train_data, epochs=10, batch_size=32, lr=1e-2, verbose=False)
 
 Step 3: what a Loop returns
 ---------------------------
@@ -295,8 +295,8 @@ The :class:`~nnodely.DataLoader` cuts the signals into sequences of
    data = {"F_in": force[:-1], "pos": position[:-1], "vel": velocity[:-1],
            "pos_meas": position[1:]}
    train_data = DataLoader(msd, source=data, seq_length=50, step=10)
-   history = msd.train(train_data, epochs=30, batch_size=32, lr=5e-2, printer=None)
-   print(k_hat.value_numpy, c_hat.value_numpy)   # about 2.0 and 0.5, the true k and c
+   history = msd.train(train_data, epochs=30, batch_size=32, lr=5e-2, verbose=False)
+   print(k_hat.value, c_hat.value)   # about 2.0 and 0.5, the true k and c
 
 Built itself, ``msd_step`` is the one-step model, with the weights the
 rollout trained. Nothing feeds the states back: a declared state is read from

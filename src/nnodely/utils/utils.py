@@ -4,7 +4,7 @@ import math
 import keras
 from typing import Any, Callable, Collection, cast
 
-SUPPORTED_OPTIMIZERS = {
+_SUPPORTED_OPTIMIZERS = {
     "sgd",
     "rmsprop",
     "adam",
@@ -127,10 +127,10 @@ def _resolve_optimizer(
         )
 
     if isinstance(optimizer, str):
-        if optimizer.lower() not in SUPPORTED_OPTIMIZERS:
+        if optimizer.lower() not in _SUPPORTED_OPTIMIZERS:
             raise ValueError(
                 f"Unknown or invalid Keras optimizer {optimizer!r}. The supported "
-                f"optimizers are: {', '.join(sorted(SUPPORTED_OPTIMIZERS))}."
+                f"optimizers are: {', '.join(sorted(_SUPPORTED_OPTIMIZERS))}."
             )
         config = keras.optimizers.serialize(keras.optimizers.get(optimizer))
         if type(config) is dict and "config" in config:
@@ -159,7 +159,6 @@ def _resolve_optimizer(
 
 def _resolve_early_stopping(
     early_stopping: str | dict[str, Any] | keras.callbacks.Callback | None,
-    early_stopping_kwargs: dict[str, Any] | None,
     logged: Collection[str],
 ) -> keras.callbacks.Callback | None:
     """Turn the ``early_stopping`` argument of :meth:`train` into a callback.
@@ -168,23 +167,10 @@ def _resolve_early_stopping(
     ``EarlyStopping`` can monitor.
     """
     if early_stopping is None:
-        if early_stopping_kwargs:
-            raise ValueError(
-                "early_stopping_kwargs needs early_stopping to name the "
-                "quantity to monitor."
-            )
         return None
 
     if isinstance(early_stopping, str):
-        callback = keras.callbacks.EarlyStopping(
-            monitor=early_stopping, **(early_stopping_kwargs or {})
-        )
-    elif early_stopping_kwargs:
-        raise ValueError(
-            "early_stopping_kwargs can only be used when early_stopping is the "
-            "name of the quantity to monitor. Configure callbacks and "
-            "configurations before passing them to train()."
-        )
+        callback = keras.callbacks.EarlyStopping(monitor=early_stopping)
     elif isinstance(early_stopping, dict):
         callback = keras.callbacks.EarlyStopping(**early_stopping)
     elif isinstance(early_stopping, keras.callbacks.Callback):

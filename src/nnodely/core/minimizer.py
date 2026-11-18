@@ -1,18 +1,21 @@
 import warnings
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import keras
 import numpy as np
 
-from nnodely.core.dag import _nodes_by_model, resolve, toposort
+from nnodely.core.dag import Table, _nodes_by_model, _resolve, _toposort
 from nnodely.core.layer import Layer
 from nnodely.core.shape import OUTER_AXIS, expand_to_rank, outer_view
-from nnodely.core.stream import Node, Stream
+from nnodely.core.results import _loss_name, _target_label
+from nnodely.core.stream import Node, Stream, _object_repr
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
+from nnodely.utils.printers import _table
 from nnodely.utils.utils import MaskedLoss, _resolve_loss
 
 if TYPE_CHECKING:
+    from nnodely.core.modely import Modely
     from nnodely.layers.loop import Loop
 
 
@@ -268,10 +271,10 @@ def _minimizer_stream(model, value, side: str, minimizer: str) -> Stream:
         roots.extend((registered["source"], registered["target"]))
     candidates = [
         (stream, None, _where(stream))
-        for stream in toposort(roots)
+        for stream in _toposort(roots)
         if isinstance(stream, Stream)
     ]
-    return resolve(
+    return _resolve(
         value,
         candidates,
         kind="stream",
@@ -316,7 +319,7 @@ def _known_nodes(model) -> tuple[list[Node], set[int]]:
     roots: list[Node] = [*model._outputs, *model._inputs]
     for registered in model._minimizers:
         roots.extend((registered["source"], registered["target"]))
-    nodes = toposort(roots)
+    nodes = _toposort(roots)
     return nodes, {id(node) for node in nodes}
 
 
@@ -368,8 +371,8 @@ def _refuse_foreign(model, nodes, known: set[int], value, side: str, minimizer: 
         if isinstance(node, Input):
             # A hidden state a side reads (the state of an Integrate, a
             # Derivative or a Buffer the side computes) starts from its init.
-            if node.update is not None and (node is value or not node._hidden):
-                output = collected.get(id(node.update))
+            if node._update is not None and (node is value or not node._hidden):
+                output = collected.get(id(node._update))
                 use = (
                     "Minimize a stream of the model: an output, or one it computes."
                     if output is None
@@ -536,3 +539,217 @@ def _check_minimizers_train_weights(model, km: keras.Model) -> None:
             UserWarning,
             stacklevel=3,
         )
+
+
+class Minimizer:
+    """One objective of a model, as :attr:`~nnodely.Modely.minimizers` lists
+    it.
+
+    You do not create one yourself: :meth:`~nnodely.Modely.minimize`
+    registers the objective, and ``model.minimizers["fit"]`` or
+    ``model.minimizers[0]`` picks its row.
+
+    It is read by its attributes, ``m.gain``. Setting ``name``, ``loss`` or
+    ``gain`` changes the objective in its
+    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
+    next :meth:`~nnodely.Modely.train`. Setting anything else raises
+    ``TypeError``: register the objective again to change what it compares.
+    :meth:`remove` removes it from its model.
+
+    Attributes
+    ----------
+    name : str
+        The name of the objective, the key of its loss, ``loss_<name>``.
+    source : Stream
+        The prediction it compares.
+    target : Stream
+        The reference it compares the prediction with. A number given as the
+        target is a :class:`~nnodely.Constant`.
+    loss : keras.losses.Loss or callable
+        The loss function.
+    gain : float
+        The weight of its loss in the total loss.
+    model : Modely
+        The model it belongs to.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Input, Modely, Output
+    >>> x = Input("x", tw=1)
+    >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+    >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
+    >>> fit = model.minimizers["fit"]
+    >>> fit.name, fit.source.name, fit.target.name, fit.gain
+    ('fit', 'y', 'y_meas', 1.0)
+    >>> fit.gain = 2.0
+    >>> model.minimizers[0].gain
+    2.0
+
+    Possible Issues
+    ---------------
+    What it compares is set by :meth:`~nnodely.Modely.minimize`:
+
+    >>> fit.source = x
+    Traceback (most recent call last):
+        ...
+    TypeError: Minimizer 'fit': its name, loss and gain can be set, not its 'source'; ...
+
+    .. versionadded:: 2.0
+    """
+
+    _SETTABLE = ("name", "loss", "gain")
+    # No attribute of its own to set: one set by mistake would be lost.
+    __slots__ = ("_minimizer", "_model")
+
+    def __init__(self, minimizer: dict, model: "Modely"):
+        # The model's own entry, not a copy: what is set is set there.
+        object.__setattr__(self, "_minimizer", minimizer)
+        object.__setattr__(self, "_model", model)
+
+    @property
+    def name(self) -> str:
+        return self._minimizer["name"]
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._model._set_minimizer(self._minimizer, "name", value)
+
+    @property
+    def source(self) -> Stream:
+        return self._minimizer["source"]
+
+    @property
+    def target(self) -> Stream:
+        return self._minimizer["target"]
+
+    @property
+    def loss(self) -> Any:
+        return self._minimizer["loss"]
+
+    @loss.setter
+    def loss(self, value: Any) -> None:
+        self._model._set_minimizer(self._minimizer, "loss", value)
+
+    @property
+    def gain(self) -> float:
+        return self._minimizer["gain"]
+
+    @gain.setter
+    def gain(self, value: float) -> None:
+        self._model._set_minimizer(self._minimizer, "gain", value)
+
+    @property
+    def model(self) -> "Modely":
+        return self._model
+
+    def __setattr__(self, key, value):
+        if key not in self._SETTABLE:
+            raise TypeError(
+                f"Minimizer {self._minimizer['name']!r}: its name, loss and gain "
+                f"can be set, not its {key!r}; declare it again with minimize() "
+                "to change what it compares."
+            )
+        object.__setattr__(self, key, value)
+
+    def __repr__(self):
+        return _object_repr(
+            self,
+            name=self.name,
+            source=self.source,
+            target=_target_label(self.target),
+            loss=_loss_name(self.loss),
+            gain=self.gain,
+            model=self._model,
+        )
+
+    def remove(self) -> None:
+        """Remove this objective from its model.
+
+        Pick it first, by its name or by its index in
+        :attr:`~nnodely.Modely.minimizers`. The next
+        :meth:`~nnodely.Modely.train` and :meth:`~nnodely.Modely.validate`
+        leave it out. The model needs no new build. The row stays readable,
+        but no longer belongs to the model: setting it raises.
+
+        Raises
+        ------
+        KeyError
+            When it is picked, if no objective has that name. Nothing is
+            removed.
+        IndexError
+            When it is picked, if the index is out of range.
+
+        See Also
+        --------
+        nnodely.Modely.minimize : Register an objective.
+        nnodely.Modely.minimizers : The objectives, as a table.
+
+        Basic Examples
+        --------------
+        >>> from nnodely import Input, Modely, Output
+        >>> x = Input("x", tw=1)
+        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
+        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
+        >>> model.minimizers["a"].remove()
+        >>> [m.name for m in model.minimizers]
+        ['b']
+
+        Options
+        -------
+        By index:
+
+        >>> model.minimizers[0].remove()
+        >>> len(model.minimizers)
+        0
+
+        Possible Issues
+        ---------------
+        A name no objective has raises, as in every table:
+
+        >>> model.minimizers["c"].remove()
+        Traceback (most recent call last):
+            ...
+        nnodely.core.dag.NameNotFound: ...no minimizer named 'c'...
+
+        A row removed is no longer the model's:
+
+        >>> fit = model.minimize("fit", "y", 1.0).minimizers["fit"]
+        >>> fit.remove()
+        >>> fit.gain = 2.0
+        Traceback (most recent call last):
+            ...
+        ValueError: Minimizer 'fit' was removed from model 'double': declare it again with minimize().
+
+        .. versionadded:: 2.0
+        """
+        model = self._model
+        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
+
+
+class Minimizers(Table):
+    """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
+    tuple of :class:`Minimizer`, printed as a table of the streams each
+    compares, its loss and its gain."""
+
+    _HEADER = ("minimizer", "source", "target", "loss", "gain")
+
+    _kind, _attr = "minimizer", "minimizers"
+
+    def clear(self) -> None:
+        """Remove every objective from the model, as
+        :meth:`Minimizer.remove` removes one."""
+        for minimizer in self:
+            minimizer.remove()
+
+    def __str__(self):
+        rows = [
+            (
+                m.name,
+                m.source.name,
+                str(_target_label(m.target)),
+                _loss_name(m.loss),
+                str(m.gain),
+            )
+            for m in self
+        ]
+        return _table(self._HEADER, [("", rows)], indexed=True)

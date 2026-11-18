@@ -258,13 +258,6 @@ class Shape:
         from the innermost, checked."""
         return resolve_axis(axis, self.seq_rank, owner, "seq")
 
-    @property
-    def outer(self) -> int | None:
-        """Length of the outer axis (:data:`OUTER_AXIS`): the outermost
-        sequence axis, or the window without a sequence, or the first dim
-        axis without either."""
-        return self.tuple[0]
-
     def with_seq(self, length: int | None) -> "Shape":
         """This shape rolled out by one more Loop, of ``length`` steps: a new
         outermost sequence axis."""
@@ -303,10 +296,6 @@ class Shape:
     # ------------------------------------------------------------------
     def get_config(self):
         return {"dim": tuple(self.dim), "tw": self.tw, "seq": tuple(self.seq)}
-
-    @classmethod
-    def from_config(cls, config: dict) -> "Shape":
-        return cls(dim=config.get("dim"), tw=config.get("tw"), seq=config.get("seq"))
 
     # A Shape reads as the sizes of one sample, as keras.Input takes them.
     def __iter__(self):

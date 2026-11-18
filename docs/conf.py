@@ -100,11 +100,9 @@ epub_copyright = "2024-2026, Gastone Pietro Rosati Papini"
 # Methods every layer has for Keras or for the graph, which a user never calls.
 _INTERNAL_MEMBERS = {
     "build_layer",
-    "call",
     "compute_output_shape",
     "from_config",
     "get_config",
-    "input_signature",
     "output_shape",
     # the hooks Keras calls on a training printer
     "on_epoch_begin",

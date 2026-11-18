@@ -6,15 +6,15 @@ import keras
 from keras.src.backend.common import stateless_scope
 
 from nnodely.core.dag import (
-    free_name,
+    _free_name,
     _copies,
-    Scope,
+    _Scope,
     _streams_from,
-    by_name_or_index,
-    flatten_fed_back,
-    flatten_node,
-    resolve,
-    toposort,
+    _by_name_or_index,
+    _flatten_fed_back,
+    _flatten_node,
+    _resolve,
+    _toposort,
 )
 from nnodely.core.layer import Layer
 from nnodely.core.modely import Modely
@@ -25,14 +25,14 @@ from nnodely.core.shape import (
     slice_axis,
     transpose,
 )
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.input import Input
 from nnodely.layers.output import Output
 
 
 #: Steps a dynamic rollout is declared with when no ``seq`` is given. It
 #: only shapes the graph: the rollout follows the data it is given.
-DYNAMIC_BUILD_LENGTH = 1
+_DYNAMIC_BUILD_LENGTH = 1
 
 
 class _SeveralOutputs(ValueError, AttributeError):
@@ -446,15 +446,15 @@ def _fed_back(roots) -> list[Input]:
         if id(node) in seen:
             continue
         seen.add(id(node))
-        if isinstance(node, Input) and node.update is not None:
+        if isinstance(node, Input) and node._update is not None:
             found.append(node)
-            stack.append(node.update)
+            stack.append(node._update)
         stack.extend(reversed(node._preds))
     return found
 
 
 def _fed_back_across_calls(
-    scope: Scope, enclosing: frozenset = frozenset()
+    scope: _Scope, enclosing: frozenset = frozenset()
 ) -> list[tuple[str, str]]:
     """The name of every fed-back Input a call inlines while a graph enclosing
     it inlines it too, with the name of the model called: one state per call,
@@ -463,7 +463,7 @@ def _fed_back_across_calls(
     here = enclosing | {
         node
         for node in scope.memo
-        if isinstance(node, Input) and node.update is not None
+        if isinstance(node, Input) and node._update is not None
     }
     for model_call, call_scope in scope.calls.items():
         found += [
@@ -475,7 +475,7 @@ def _fed_back_across_calls(
     return sorted(found)
 
 
-def _inlined_inputs(scope: Scope) -> dict[int, Input]:
+def _inlined_inputs(scope: _Scope) -> dict[int, Input]:
     """The Input every copy of one made inlining a graph stands for, by the
     id of the copy, in ``scope`` and the scope of every call it makes. A
     fed-back Input inside a called model is copied once per call."""
@@ -525,9 +525,9 @@ class _Step:
         # The step, with every model it calls inlined: a fed-back Input inside
         # one is copied once per call, together with the stream it is fed
         # back with.
-        scope = Scope(pending=[], loop=True)
-        outputs = [flatten_node(output, scope) for output in f._outputs]
-        flatten_fed_back(scope)
+        scope = _Scope(pending=[], loop=True)
+        outputs = [_flatten_node(output, scope) for output in f._outputs]
+        _flatten_fed_back(scope)
         crossing = _fed_back_across_calls(scope)
         if crossing:
             state, model = crossing[0]
@@ -564,10 +564,10 @@ class _Step:
         for node, output in explicit:
             state = scope.memo.get(node, node)
             fed = outputs[f._outputs.index(output)]
-            if state in found and state.update not in (fed, fed._preds[0]):
+            if state in found and state._update not in (fed, fed._preds[0]):
                 raise ValueError(
                     f"{who}: {node.name!r} is fed back with "
-                    f"{state.update.name!r} in the graph of {f.name!r}, and "
+                    f"{state._update.name!r} in the graph of {f.name!r}, and "
                     f"feedback= gives it {output.name!r}: an Input is fed back "
                     "with one stream."
                 )
@@ -582,7 +582,7 @@ class _Step:
         renamed = False
         for node in found:
             if node.name in names:
-                node.name = free_name(node.name, names)
+                node.name = _free_name(node.name, names)
                 node._input = keras.Input(shape=node.shape.tuple, name=node.name)
                 renamed = True
             names.add(node.name)
@@ -597,15 +597,15 @@ class _Step:
                 (
                     output
                     for output in body_outputs
-                    if node.update in (output, output._preds[0])
+                    if node._update in (output, output._preds[0])
                     and id(output) not in used
                 ),
                 None,
             )
             if output is None:
-                key = free_name(f"{node.name}_next", taken)
+                key = _free_name(f"{node.name}_next", taken)
                 taken.add(key)
-                output = Output(key, cast(Stream, node.update))
+                output = Output(key, cast(Stream, node._update))
                 body_outputs.append(output)
             used.add(id(output))
             pairs.append((node, output))
@@ -615,10 +615,10 @@ class _Step:
         # first step.
         starts: dict[Input, Any] = {}
         for node in found:
-            init = node.init
+            init = node._init
             if init is None:
                 continue
-            if isinstance(init, Input) and init.update is not None:
+            if isinstance(init, Input) and init._update is not None:
                 raise ValueError(
                     f"{who}: the init of {node.name!r} is the fed-back Input "
                     f"{init.name!r}, which has no value before the first step."
@@ -644,8 +644,8 @@ class _Step:
         # that Input itself, not one of its name.
         states = [state for state, _ in pairs]
         step_inputs: dict[int, Input] = {}
-        for node in toposort(body_outputs):
-            if isinstance(node, Input) and node.update is None and node not in states:
+        for node in _toposort(body_outputs):
+            if isinstance(node, Input) and node._update is None and node not in states:
                 step_inputs.setdefault(self.key(node), node)
         seeds = [init for init in starts.values() if isinstance(init, Input)]
         listed = {id(node) for node in f._inputs}
@@ -681,7 +681,7 @@ class _Step:
                 for state, output in pairs
             ]
             self.starts = {
-                declared[id(node)]: declared[id(node)].init
+                declared[id(node)]: declared[id(node)]._init
                 for node in starts
                 if id(node) in declared
             }
@@ -756,7 +756,7 @@ class _Step:
         itself, or an Input of ``f`` (or its name) that is fed back."""
         if any(key is state for state in self.states):
             return key
-        declared = resolve(
+        declared = _resolve(
             key,
             [(node, index, "") for index, node in enumerate(self.f._inputs)],
             kind="input",
@@ -1324,7 +1324,7 @@ class Loop(Layer):
         if loop_sources:
             # Every rollout input is dynamic, so the data decides the number of
             # steps; the graph is only declared with one.
-            return DYNAMIC_BUILD_LENGTH
+            return _DYNAMIC_BUILD_LENGTH
         raise ValueError(
             "Loop cannot determine the rollout length: no initial value or input "
             "carries a rollout, so pass seq= to Loop."
@@ -1525,7 +1525,7 @@ class Loop(Layer):
         Input of ``f`` it stands for, or a name that one input alone
         carries. A state is refused: it starts from its init."""
         states = list(self._feedback_inputs)
-        key = resolve(
+        key = _resolve(
             key,
             [(node, None, "") for node in [*known, *states]],
             kind="input",
@@ -1592,7 +1592,7 @@ class Loop(Layer):
             starts.append(
                 (
                     state,
-                    output._preds[0] if state.update is None else state.update,
+                    output._preds[0] if state._update is None else state._update,
                     value if isinstance(given, Stream) else given,
                     rolled,
                 )
@@ -1603,7 +1603,7 @@ class Loop(Layer):
     def _find_node(nodes, value, kind):
         # A name several of them carry is refused, listing them: the body is
         # built only if its inputs and outputs have names of their own.
-        return resolve(
+        return _resolve(
             value,
             [(node, None, f"(its {kind} {index})") for index, node in enumerate(nodes)],
             kind=kind,
@@ -1622,10 +1622,10 @@ class Loop(Layer):
         """Called, a loop of one output is the stream it returns. Not called
         yet, or with several outputs (no one stream), it is the loop."""
         if self._shape is None:
-            return object_repr(self, name=self.name, model=self._model, bound=False)
+            return _object_repr(self, name=self.name, model=self._model, bound=False)
         if self._return_all_outputs:
             outputs = [output.name for output in self._returns]
-            return object_repr(
+            return _object_repr(
                 self, name=self.name, model=self._model, bound=True, outputs=outputs
             )
         return Stream.__repr__(self)
@@ -1652,9 +1652,9 @@ class Loop(Layer):
         raises, listing them with their position."""
         outputs = self._outputs()
         owner = f"Loop {self.name!r}"
-        if not by_name_or_index(key, owner):
+        if not _by_name_or_index(key, owner):
             return outputs[key]
-        picked = resolve(
+        picked = _resolve(
             key,
             [(output, index, "") for index, output in enumerate(self._returns)],
             kind="output",

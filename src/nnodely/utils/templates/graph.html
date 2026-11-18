@@ -1217,8 +1217,7 @@
         return parts;
     }
     function openBody(url) {
-        if (PAGE.link_target === "_blank") window.open(url, "_blank");
-        else window.location.href = url;
+        window.location.href = url;
     }
 
     function renderNode(id) {

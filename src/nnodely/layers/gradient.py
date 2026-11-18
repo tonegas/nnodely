@@ -403,13 +403,7 @@ class Gradient(Layer):
     # ------------------------------------------------------------------
     # Keras layer logic
     # ------------------------------------------------------------------
-    def build_layer(self):
-        raise RuntimeError(
-            f"{self.name}: a Gradient is built from the graph it "
-            "differentiates, not from its input value."
-        )
-
-    def call(self, xs):
+    def _call(self, xs):
         tensor = xs[0]
         sources = _source_input_tensors(tensor)
         # The Input by its Keras input, the one its copy in the graph reads.

@@ -132,8 +132,8 @@ class Linear(Layer):
         :class:`Parameter` holds them, of the shape listed in Notes. Axes of
         size 1 aside, any other shape raises.
     bias : bool, str, keras.initializers.Initializer or Parameter, default True
-        The offset added to every output. ``True`` draws it with
-        ``"glorot_uniform"``, not zeros. ``False`` leaves it out. An
+        The offset added to every output. ``True`` starts it from zeros, as
+        ``keras.layers.Dense`` does. ``False`` leaves it out. An
         initializer, or a Parameter of the shape listed in Notes, sets it.
     axis : int or None, default None
         The feature axis mapped, counted among the feature axes only: ``0``
@@ -210,9 +210,8 @@ class Linear(Layer):
     passed, shared and frozen. They are listed by :attr:`Modely.parameters`,
     and are trained, frozen and saved with the model. With an ``axis``, the
     initializer draws the matrix of each position as its own
-    :math:`D_k \times` ``features`` matrix. After :meth:`Modely.build`, the
-    stream the layer returns exposes their Keras variables as ``kernel``
-    and ``bias``.
+    :math:`D_k \times` ``features`` matrix. ``weights`` gives them by name,
+    ``layer.weights["kernel"]``, on the layer and on the stream it returns.
 
     One Linear object called on several streams applies the same weights to
     each.
@@ -375,7 +374,7 @@ class Linear(Layer):
     """
 
     _weight_labels = ("kernel", "bias")
-    _weight_defaults = {"kernel": "glorot_uniform", "bias": "glorot_uniform"}
+    _weight_defaults = {"kernel": "glorot_uniform", "bias": "zeros"}
 
     def __init__(
         self,
@@ -440,19 +439,6 @@ class Linear(Layer):
             else (*dim[:axis], self._features, *dim[axis + 1 :])
         )
         return inputs[0].shape.replace(dim=out_dim)
-
-    @property
-    def kernel(self):
-        """The Keras variable of the Parameter holding the kernel, in that
-        Parameter's shape; None before :meth:`Modely.build`."""
-        return self._weight_value("kernel")
-
-    @property
-    def bias(self):
-        """The Keras variable of the Parameter holding the bias, in that
-        Parameter's shape; None without a bias or before
-        :meth:`Modely.build`."""
-        return self._weight_value("bias")
 
     def build_layer(self):
         dim = tuple(self._preds[0].dim)  # type: ignore[attr-defined]

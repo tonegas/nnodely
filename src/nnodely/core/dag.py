@@ -10,7 +10,7 @@ from copy import copy
 
 import keras
 
-from nnodely.core.stream import NODE_NAMES, Node, Stream, reserve_name
+from nnodely.core.stream import _NODE_NAMES, Node, Stream, _reserve_name
 from typing import TYPE_CHECKING, Any, Callable, Container, Generator, Sequence
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 _node_counter = 0
 
 
-def next_name(prefix: str) -> str:
+def _next_name(prefix: str) -> str:
     """A name for a node left unnamed, used by no node of this process.
 
     The counter alone is not enough: a given name, or one read back from a
@@ -31,15 +31,15 @@ def next_name(prefix: str) -> str:
     while True:
         _node_counter += 1
         name = f"{prefix}{_node_counter}"
-        if name not in NODE_NAMES:
+        if name not in _NODE_NAMES:
             break
     # Reserved here as well, because a LocalModel or an EquationLearner takes
     # its name from here without being a node, and derives its layers' names.
-    reserve_name(name)
+    _reserve_name(name)
     return name
 
 
-def free_name(name: str, taken: Container[str]) -> str:
+def _free_name(name: str, taken: Container[str]) -> str:
     """``name``, or the first of ``name_2``, ``name_3``, ... not in
     ``taken``, a set of names or a dict keyed by them. It is how a name
     nnodely generates, or shows, keeps apart from those already used. The caller
@@ -66,7 +66,7 @@ def free_name(name: str, taken: Container[str]) -> str:
 #: ``(object, index, where)``: an object a key may pick, its index in the
 #: list it is picked from (or None) and where it is, for the listing of a
 #: name several carry.
-Candidate = tuple[Any, "int | None", str]
+_Candidate = tuple[Any, "int | None", str]
 
 
 class NameNotFound(KeyError, ValueError):
@@ -78,7 +78,7 @@ class NameNotFound(KeyError, ValueError):
         return str(self.args[0]) if self.args else ""
 
 
-def by_name_or_index(key, owner: str) -> bool:
+def _by_name_or_index(key, owner: str) -> bool:
     """Whether ``key`` picks by name: a string; an int or a slice picks by
     position, as in a list. Anything else, such as a name and an index
     together, raises ``TypeError``."""
@@ -92,8 +92,8 @@ def by_name_or_index(key, owner: str) -> bool:
     )
 
 
-def pick(
-    candidates: Sequence[Candidate],
+def _pick(
+    candidates: Sequence[_Candidate],
     name: str,
     *,
     kind: str,
@@ -122,9 +122,9 @@ def pick(
     )
 
 
-def resolve(
+def _resolve(
     key,
-    candidates: Sequence[Candidate],
+    candidates: Sequence[_Candidate],
     *,
     kind: str,
     owner: str,
@@ -139,7 +139,7 @@ def resolve(
     place a key becomes an object:
 
     - a name, a string: the one candidate carrying it; a name several carry
-      raises ``ValueError`` listing them (:func:`pick`);
+      raises ``ValueError`` listing them (:func:`_pick`);
     - with ``indices``, an int or a slice: by position, as in a list;
     - with ``objects``, an instance of those types: the candidate it is or,
       with ``same(candidate, key)``, the one it stands for, as an Input
@@ -160,7 +160,7 @@ def resolve(
                 f"{plural}."
             )
         return found
-    if indices and not by_name_or_index(key, owner):
+    if indices and not _by_name_or_index(key, owner):
         return items[key]
     if not isinstance(key, str):
         article = "an" if kind[:1].lower() in "aeiou" else "a"
@@ -168,7 +168,7 @@ def resolve(
             f"{owner}: {article} {kind} is picked by its name, a string"
             f"{', or by itself' if objects is not None else ''}; got {key!r}."
         )
-    picked = pick(candidates, key, kind=kind, kinds=kinds, owner=owner, hint=hint)
+    picked = _pick(candidates, key, kind=kind, kinds=kinds, owner=owner, hint=hint)
     if not picked:
         raise NameNotFound(
             missing(key)
@@ -179,18 +179,19 @@ def resolve(
     return picked[0]
 
 
-class Table(list):
-    """A list of the objects of a model a table prints (its Parameters,
+class Table(tuple):
+    """A tuple of the objects of a model a table prints (its Parameters,
     Inputs, outputs, models or minimizers), picked by name or by index, the
-    index column of the table, as :func:`resolve` picks them. A subclass
+    index column of the table, as :func:`_resolve` picks them. A subclass
     sets ``_kind`` and ``_attr``, the name of its list on a model, and gives
     where each item is with :meth:`_where`.
 
-    It reads as a list, which iterated gives the objects, and as a dict of
+    It reads as a tuple, which iterated gives the objects, and as a dict of
     them by name: ``keys()``, ``values()`` and ``items()`` are lists, and
     ``in`` takes a name or an object. ``print`` shows the table, with the
     ``idx`` column; ``repr`` the same items, one per line, as
-    ``[i] 'name': Object(...)``."""
+    ``[i] 'name': Object(...)``. A tuple, so read only: the model makes a
+    new one at every read, and changing one would change nothing."""
 
     _kind = "item"
     _attr = "items"
@@ -204,7 +205,7 @@ class Table(list):
         carry."""
         return ""
 
-    def _candidates(self) -> list[Candidate]:
+    def _candidates(self) -> list[_Candidate]:
         return [
             (item, index, self._where(index, item)) for index, item in enumerate(self)
         ]
@@ -213,7 +214,7 @@ class Table(list):
         """An item by its name, or by its index (the index column of the
         table) as in a list. A name several items carry raises
         ``ValueError`` listing them, with their index."""
-        return resolve(
+        return _resolve(
             key,
             self._candidates(),
             kind=self._kind,
@@ -253,7 +254,7 @@ class Table(list):
 # ------------------------------------------------------------------
 
 
-class Scope:
+class _Scope:
     """What one graph has already inlined, plus a scope per call it makes.
 
     A model called several times has to be inlined once per call, so the nodes
@@ -272,7 +273,7 @@ class Scope:
         declared: set | None = None,
     ) -> None:
         self.memo: dict[Node, Any] = {} if memo is None else memo
-        self.calls: dict[Node, "Scope"] = {}
+        self.calls: dict[Node, "_Scope"] = {}
         # The Parameters and Constants inlined, one copy each, shared with
         # every call: they are one object in every model that reads them. So
         # is an Input read from data, one array whatever reads it, unless a
@@ -311,9 +312,9 @@ class Scope:
         return merged
 
 
-def flatten_node(node: Node, scope: Scope) -> Any:
+def _flatten_node(node: Node, scope: _Scope) -> Any:
     """The copy of ``node`` inlined in ``scope``, every model it calls
-    inlined too, each call in a scope of its own (see :class:`Scope`).
+    inlined too, each call in a scope of its own (see :class:`_Scope`).
 
     Without recursion: the steps of each node (:func:`_flatten_steps`) ask
     for the copies of the nodes it reads, and a stack runs the steps of the
@@ -333,8 +334,10 @@ def flatten_node(node: Node, scope: Scope) -> Any:
     return copied
 
 
-def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], Any, Any]:
-    """The steps of :func:`flatten_node` for one node: ``yield (pred,
+def _flatten_steps(
+    node: Node, scope: _Scope
+) -> Generator[tuple[Node, _Scope], Any, Any]:
+    """The steps of :func:`_flatten_node` for one node: ``yield (pred,
     scope)`` is the copy of ``pred`` inlined in ``scope``, as a recursive
     call would give it; the copy of ``node`` is returned."""
     from nnodely.core.modely import IntermediateOutput
@@ -350,11 +353,11 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
         and node._hidden
         and node not in scope.declared
     ):
-        init = Stream._coerce_operand(0.0 if node.init is None else node.init)
+        init = Stream._coerce_operand(0.0 if node._init is None else node._init)
         scope.memo[node] = yield (_HiddenInit(state=node.shape)([init]), scope)
         return scope.memo[node]
     shared = isinstance(node, _Value) or (
-        isinstance(node, Input) and (node.update is None or not scope.loop)
+        isinstance(node, Input) and (node._update is None or not scope.loop)
     )
     if shared and node in scope.values:
         scope.memo[node] = scope.values[node]
@@ -381,7 +384,7 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
                 for internal_input, argument in arguments.items()
                 if scope.loop
                 and isinstance(internal_input, Input)
-                and internal_input.update is not None
+                and internal_input._update is not None
             }
             bindings = {
                 internal_input: argument
@@ -391,7 +394,7 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
             # A call starts from its bindings alone: what the caller has
             # inlined so far depends on the order the graph is walked in, and
             # sharing it made the result depend on that order too.
-            call_scope = Scope(
+            call_scope = _Scope(
                 bindings, scope.values, scope.pending, scope.loop, scope.declared
             )
             call_scope.inits = inits
@@ -418,13 +421,13 @@ def _flatten_steps(node: Node, scope: Scope) -> Generator[tuple[Node, Scope], An
     if (
         scope.pending is not None
         and isinstance(node, Input)
-        and node.update is not None
+        and node._update is not None
     ):
         scope.pending.append((new_node, node, scope))
     return new_node
 
 
-def flatten_fed_back(scope: Scope) -> None:
+def _flatten_fed_back(scope: _Scope) -> None:
     """Inline the stream every fed-back Input inlined in ``scope`` is fed
     back with, and its init, each in the call the Input was inlined in, and so
     on for the fed-back Inputs those read in turn.
@@ -435,18 +438,18 @@ def flatten_fed_back(scope: Scope) -> None:
     """
     while scope.pending:
         inlined, source, source_scope = scope.pending.pop(0)
-        inlined.update = flatten_node(source.update, source_scope)
+        inlined._update = _flatten_node(source._update, source_scope)
         if source in source_scope.inits:
             # A state starts from one value.
-            if source.init is not None:
+            if source._init is not None:
                 raise ValueError(
                     f"{source.name!r} has two initial values: the init of the "
                     "block that keeps it, and the stream a call gives it as an "
                     "input of its model. Give one of them."
                 )
-            inlined.init = source_scope.inits[source]
-        elif isinstance(source.init, Node):
-            inlined.init = flatten_node(source.init, source_scope)
+            inlined._init = source_scope.inits[source]
+        elif isinstance(source._init, Node):
+            inlined._init = _flatten_node(source._init, source_scope)
 
 
 def flatten(model):
@@ -470,11 +473,11 @@ def _flatten_graph(
     are left as they are, in the graph of the model that declared them.
     ``one_step`` reads the init of every hidden fed-back Input not among
     ``inputs`` in its place, as a Modely is built."""
-    scope = Scope(
+    scope = _Scope(
         pending=[] if fed_back else None, declared=set(inputs) if one_step else None
     )
-    flat_outputs: list["Output"] = [flatten_node(output, scope) for output in outputs]
-    flatten_fed_back(scope)
+    flat_outputs: list["Output"] = [_flatten_node(output, scope) for output in outputs]
+    _flatten_fed_back(scope)
     return flat_outputs, scope.merged_memo()
 
 
@@ -501,13 +504,13 @@ def _undeclared_inputs(inputs, outputs) -> list:
                 continue
             seen.add(id(node))
             if isinstance(node, Input):
-                fed_back = node.update is not None
+                fed_back = node._update is not None
                 if rollout and fed_back:
-                    stack.append(node.update)
+                    stack.append(node._update)
                 if id(node) in declared:
                     pass
                 elif node._hidden and fed_back:
-                    stack.append(node.init)
+                    stack.append(node._init)
                 elif fed_back or not rollout:
                     found[id(node)] = node
             stack.extend(node._preds)
@@ -550,9 +553,9 @@ def _source_input_tensors(tensor) -> list[Any]:
 # ------------------------------------------------------------------
 # DAG topological ordering
 # ------------------------------------------------------------------
-def toposort(roots: Sequence[Node]) -> list[Node]:
+def _toposort(roots: Sequence[Node]) -> list[Node]:
     """Every node ``roots`` are computed from, the roots included, each
-    after its predecessors: a model's graph is ``toposort(model._outputs)``.
+    after its predecessors: a model's graph is ``_toposort(model._outputs)``.
 
     A depth-first walk, each node's predecessors in their order, without
     recursion: a stack holds every node of the path being walked with the
@@ -579,7 +582,7 @@ def toposort(roots: Sequence[Node]) -> list[Node]:
     return order
 
 
-def _copies(scope: Scope) -> dict[int, Node]:
+def _copies(scope: _Scope) -> dict[int, Node]:
     """The node of the graph every node held by ``scope``, and by the scope
     of every call it makes, stands for, by the id of the node held: the copy
     inlining made, or what a call returns for the output it is read as. A
@@ -606,8 +609,8 @@ def _read_nodes(
     the Modely reads its init in place of."""
     from nnodely.layers.input import Input
 
-    scope = Scope(declared=None if declared is None else set(declared))
-    nodes = toposort([flatten_node(root, scope) for root in roots])
+    scope = _Scope(declared=None if declared is None else set(declared))
+    nodes = _toposort([_flatten_node(root, scope) for root in roots])
     if streams is not None:
         streams.update(_copies(scope))
     if hidden is not None and scope.declared is not None:

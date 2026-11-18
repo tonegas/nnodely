@@ -600,7 +600,7 @@ class PReLU(Layer):
     │     │ total     │     │    │        │ 3      │ 3         │
     └─────┴───────────┴─────┴────┴────────┴────────┴───────────┘
     >>> alpha = model.parameters["act_alpha"]
-    >>> alpha.value_numpy
+    >>> alpha.value
     array([[0., 0., 0.]], dtype=float32)
 
     Training changes them. Here they are set by hand, one per feature:

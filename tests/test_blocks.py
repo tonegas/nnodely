@@ -623,12 +623,14 @@ def test_fuzzify_centers_follow_the_gradient():
     data = DataLoader(model, source={"step_x": np.array([[0.3], [-1.2]], np.float32)})
 
     for expected in ([0.5, 2.0], [0.75, 2.5]):
-        model.train(data, epochs=1, batch_size=2, optimizer="sgd", lr=0.5, printer=None)
-        np.testing.assert_allclose(np.ravel(centers.value_numpy), expected, rtol=1e-6)  # type: ignore
+        model.train(
+            data, epochs=1, batch_size=2, optimizer="sgd", lr=0.5, verbose=False
+        )
+        np.testing.assert_allclose(np.ravel(centers.value), expected, rtol=1e-6)  # type: ignore
     # Frozen, they stay where they are.
     centers.freeze()
-    model.train(data, epochs=1, batch_size=2, optimizer="sgd", lr=0.5, printer=None)
-    np.testing.assert_allclose(np.ravel(centers.value_numpy), [0.75, 2.5], rtol=1e-6)  # type: ignore
+    model.train(data, epochs=1, batch_size=2, optimizer="sgd", lr=0.5, verbose=False)
+    np.testing.assert_allclose(np.ravel(centers.value), [0.75, 2.5], rtol=1e-6)  # type: ignore
 
     # Centers computed by a Fir, u times its kernel with u = 2, against 2 and
     # 6: d/dk of ((2 k0 - 2)^2 + (2 k1 - 6)^2) / 2 is (4 k0 - 4, 4 k1 - 12),
@@ -650,8 +652,8 @@ def test_fuzzify_centers_follow_the_gradient():
             "fir_step_u": np.array([[2.0]], np.float32),
         },
     )
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.125, printer=None)
-    np.testing.assert_allclose(np.ravel(kernel.value_numpy), [0.5, 2.0], rtol=1e-6)  # type: ignore
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.125, verbose=False)
+    np.testing.assert_allclose(np.ravel(kernel.value), [0.5, 2.0], rtol=1e-6)  # type: ignore
 
 
 @pytest.mark.slow
@@ -670,10 +672,10 @@ def test_fuzzify_learns_where_its_triangles_sit():
     data = DataLoader(model, source={"learn_x": samples})
 
     model.train(
-        data, epochs=100, batch_size=61, optimizer="adam", lr=0.05, printer=None
+        data, epochs=100, batch_size=61, optimizer="adam", lr=0.05, verbose=False
     )
     np.testing.assert_allclose(
-        np.ravel(centers.value_numpy),  # type: ignore
+        np.ravel(centers.value),  # type: ignore
         [0.0, 1.4, 2.0],
         atol=0.01,
     )
@@ -1095,10 +1097,10 @@ def test_membership_widths_train():
     data = DataLoader(model, source={"train_width_x": samples})
 
     model.train(
-        data, epochs=200, batch_size=81, optimizer="adam", lr=0.02, printer=None
+        data, epochs=200, batch_size=81, optimizer="adam", lr=0.02, verbose=False
     )
-    np.testing.assert_allclose(np.ravel(radius.value_numpy), [1.0], atol=0.01)  # type: ignore
-    np.testing.assert_allclose(np.ravel(sigma.value_numpy), [1.0], atol=0.01)  # type: ignore
+    np.testing.assert_allclose(np.ravel(radius.value), [1.0], atol=0.01)  # type: ignore
+    np.testing.assert_allclose(np.ravel(sigma.value), [1.0], atol=0.01)  # type: ignore
 
 
 @pytest.mark.slow
@@ -1130,9 +1132,9 @@ def test_a_parameter_read_by_rectangles_trains_where_it_is_read_elsewhere():
         samples = np.linspace(-0.5, 2.5, 31, dtype=np.float32).reshape(-1, 1)
         data = DataLoader(model, source={f"{name}_x": samples})
         model.train(
-            data, epochs=100, batch_size=31, optimizer="adam", lr=0.05, printer=None
+            data, epochs=100, batch_size=31, optimizer="adam", lr=0.05, verbose=False
         )
-        return np.ravel(centers.value_numpy), np.ravel(radius.value_numpy)  # type: ignore
+        return np.ravel(centers.value), np.ravel(radius.value)  # type: ignore
 
     centers, radius = fit("rect_alone", shared=False)
     np.testing.assert_array_equal(centers, [0.0, 1.0, 2.0])
@@ -1168,9 +1170,9 @@ def test_membership_widths_of_zero_or_below_give_no_nan():
         sigma.param.assign(np.array([width], dtype=np.float32))  # type: ignore
         result = model({"nan_x": samples.reshape(-1, 1, 1)})
         assert all(np.isfinite(to_numpy(value)).all() for value in result.values())
-        model.train(data, epochs=1, batch_size=3, optimizer="sgd", printer=None)
+        model.train(data, epochs=1, batch_size=3, optimizer="sgd", verbose=False)
         for parameter in (radius, sigma, centers):
-            assert np.isfinite(parameter.value_numpy).all()  # type: ignore
+            assert np.isfinite(parameter.value).all()  # type: ignore
 
 
 def test_fuzzify_takes_the_shape_its_functions_give():
@@ -2378,7 +2380,7 @@ def test_integrate_is_trained_through():
     )
     assert len(data) == len(rates)  # one trajectory per simulation
 
-    model.train(data, epochs=200, batch_size=16, lr=0.05, printer=None)
+    model.train(data, epochs=200, batch_size=16, lr=0.05, verbose=False)
 
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
 
@@ -2501,7 +2503,7 @@ def test_a_dynamic_integrate_trains_on_simulations_of_different_lengths():
     data = DataLoader(model, source=simulations, seq_length="full")
     assert len(data) == len(simulations)
 
-    model.train(data, epochs=200, batch_size=8, lr=0.05, printer=None)
+    model.train(data, epochs=200, batch_size=8, lr=0.05, verbose=False)
 
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
 
@@ -2959,7 +2961,7 @@ def test_derivative_is_trained_through():
     )
     assert len(data) == len(positions)  # one trajectory per simulation
 
-    model.train(data, epochs=200, batch_size=16, lr=0.05, printer=None)
+    model.train(data, epochs=200, batch_size=16, lr=0.05, verbose=False)
 
     np.testing.assert_allclose(to_numpy(k.param).ravel(), [2.0], atol=1e-2)
 
@@ -3015,7 +3017,7 @@ def test_derivative_exports_to_onnx(tmp_path):
     data = _saved_derivative_data("donnx", 5)
     model.export_onnx(tmp_path)
 
-    actual = Modely.validate_onnx(tmp_path / "donnx.onnx", data, return_dict=True)
+    actual = Modely.run_onnx(tmp_path / "donnx.onnx", data, return_dict=True)
     np.testing.assert_allclose(
         to_numpy(actual["donnx_out"]),  # type: ignore
         to_numpy(model(data)["donnx_out"]),
@@ -3035,7 +3037,7 @@ def test_derivative_exports_to_onnx_with_the_horizon_it_is_given(tmp_path):
     for steps in (2, 6):
         model.export_onnx(tmp_path, f"donnx_{steps}", seq=steps)
         data = _saved_derivative_data("donnx_dynamic", steps)
-        actual = Modely.validate_onnx(
+        actual = Modely.run_onnx(
             tmp_path / f"donnx_{steps}.onnx", data, return_dict=True
         )["donnx_dynamic_out"]  # type: ignore
         expected = to_numpy(model(data)["donnx_dynamic_out"])

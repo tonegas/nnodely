@@ -1,8 +1,8 @@
 import json
 import warnings
 from pathlib import Path
-from nnodely.core.dag import free_name
-from nnodely.core.stream import Node, class_path, registered_class
+from nnodely.core.dag import _free_name
+from nnodely.core.stream import Node, _class_path, _registered_class
 
 
 def _saved_order(model) -> list:
@@ -11,18 +11,18 @@ def _saved_order(model) -> list:
     read or not, since they are what it is called with; and those its
     fed-back Inputs are fed back with, and start from, which are no
     predecessors of theirs. A model it calls is a node of it, saved in a folder of its own."""
-    from nnodely.core.dag import toposort
+    from nnodely.core.dag import _toposort
     from nnodely.layers.input import Input
 
     roots = [*model._outputs, *model._inputs]
     while True:
-        order = toposort(roots)
+        order = _toposort(roots)
         reached = set(order)
         extra = [
             stream
             for node in order
-            if isinstance(node, Input) and node.update is not None
-            for stream in (node.update, node.init)
+            if isinstance(node, Input) and node._update is not None
+            for stream in (node._update, node._init)
             if isinstance(stream, Node) and stream not in reached
         ]
         if not extra:
@@ -153,7 +153,7 @@ class ModelSerializer:
         for node in order:
             node_data = {
                 "id": node_ids[node],
-                "class_name": class_path(type(node)),
+                "class_name": _class_path(type(node)),
                 "config": node.get_config(),
                 "preds": [node_ids[pred] for pred in node._preds],
             }
@@ -165,13 +165,13 @@ class ModelSerializer:
                 # A fed-back Input keeps the stream it is fed back with and
                 # its init, a number or a node: a loop that calls the loaded
                 # model feeds it back as it would the saved one.
-                if node.update is not None:
+                if node._update is not None:
                     node_data["feedback"] = {
-                        "update": node_ids[node.update],
+                        "update": node_ids[node._update],
                         "init": (
-                            node_ids[node.init]
-                            if isinstance(node.init, Node)
-                            else node.init
+                            node_ids[node._init]
+                            if isinstance(node._init, Node)
+                            else node._init
                         ),
                         "hidden": node._hidden,
                         "hidden_by_user": node._hidden_by_user,
@@ -195,7 +195,7 @@ class ModelSerializer:
                 folder = folders.get(id(held))
                 if folder is None:
                     base = held.name if isinstance(node, ModelCall) else node.name
-                    folder = free_name(base, set(folders.values()))
+                    folder = _free_name(base, set(folders.values()))
                     folders[id(held)] = folder
                     # Its weights are in this model's file, the ones it
                     # computes with here. Built (a Loop body always is, a
@@ -257,7 +257,7 @@ class ModelSerializer:
         calls: dict[str, list] = {}
 
         for node_data in data["nodes"]:
-            cls = registered_class(node_data["class_name"])
+            cls = _registered_class(node_data["class_name"])
             if cls is None:
                 raise ValueError(
                     f"The saved model holds a {node_data['class_name']!r} node, "
@@ -315,7 +315,7 @@ class ModelSerializer:
             feedback = node_data.get("feedback")
             state = node_map[node_data["id"]]
             # An Input loaded in another file of the tree already is.
-            if feedback is not None and state.update is None:
+            if feedback is not None and state._update is None:
                 init = feedback["init"]
                 state._feed_back(
                     node_map[feedback["update"]],

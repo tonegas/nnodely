@@ -159,9 +159,12 @@ class Outputs(Table):
 
     _kind, _attr = "output", "outputs"
 
-    def __init__(self, rows: list[dict]):
-        super().__init__(row["output"] for row in rows)
-        self._rows = rows
+    _rows: list[dict]
+
+    def __new__(cls, rows: list[dict]):
+        table = super().__new__(cls, (row["output"] for row in rows))
+        table._rows = rows
+        return table
 
     def _where(self, index, item) -> str:
         return f"(of {self._rows[index]['stream']!r})"

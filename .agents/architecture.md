@@ -85,12 +85,12 @@ compares or assigns a name must respect them.
 
 A string the user types is accepted, but it is resolved to its object **where
 the user gives it**. A name several objects carry is refused there, with the
-listing `pick` prints. After that, inside the library, only objects are used:
+listing `_pick` prints. After that, inside the library, only objects are used:
 
 - never a name to find an object again;
 - never an object turned back into its name to compare it.
 
-All resolution goes through `resolve(key, candidates, ...)` in `core/dag.py`,
+All resolution goes through `_resolve(key, candidates, ...)` in `core/dag.py`,
 which raises `NameNotFound` (a `KeyError` and a `ValueError`). The entry
 points that already use it:
 
@@ -103,7 +103,7 @@ points that already use it:
 - the keys, `init` and feedback of a Loop.
 
 A new public method that takes a name or an object follows the same pattern:
-resolve once with `resolve`, then work with the object. A new collection
+resolve once with `_resolve`, then work with the object. A new collection
 shown to the user is a `Table`.
 
 ### Rule 2: check uniqueness at the Keras boundary
@@ -120,9 +120,9 @@ The two kinds of name are treated differently:
   and the message tells the user which object to rename.
 - **Names nnodely generates** (Keras layers, the kept state of `Integrate`,
   `Derivative` and `Buffer`, copies made inside a Loop, saved folders, HTML
-  sub-pages): they take a free name with `free_name(name, taken)` in
+  sub-pages): they take a free name with `_free_name(name, taken)` in
   `core/dag.py`, which gives `name`, then `name_2`, `name_3`, ... Do not write
-  another numbering loop. `next_name` names a node the user gave no name.
+  another numbering loop. `_next_name` names a node the user gave no name.
 
 The checks in place, to keep and to reuse:
 
@@ -192,14 +192,14 @@ These are boundaries, protected by rule 2. They stay strings on purpose:
 - A key of a model call or of the DataLoader that is an Input of another
   model is refused. A string key that names no Input is ignored.
 - A file nnodely writes for each of several objects is named by position, or
-  by `free_name`, never by a slug of a user name alone: `Fit` and `fit`
+  by `_free_name`, never by a slug of a user name alone: `Fit` and `fit`
   collide on macOS and Windows.
 
 ## Saving and exporting
 
 - `save` / `load` (`core/registry.py`, `ModelSerializer`) write the nnodely
   graph as JSON plus weights. Each node is saved by its class path
-  (`NODE_REGISTRY` in `core/stream.py`) and rebuilt with
+  (`_NODE_REGISTRY` in `core/stream.py`) and rebuilt with
   `get_config()` / `from_config()`. **A change to what is saved bumps
   `ModelSerializer.VERSION`.**
 - `export_keras`, `export_onnx` (`core/export.py`) export the Keras graph.

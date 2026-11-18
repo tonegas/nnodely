@@ -17,11 +17,9 @@ import numpy as np
 import pandas as pd
 
 from nnodely.core.shape import OUTER_AXIS, slice_axis
-from nnodely.core.stream import object_repr
+from nnodely.core.stream import _object_repr
 from nnodely.layers.input import Input, _seq_cell, _tw_cell
 from nnodely.utils.printers import _table
-
-sliding_window_view = np.lib.stride_tricks.sliding_window_view
 
 #: A dict keyed by Input, by input name, or by both: three types, since a
 #: dict of names alone is not a dict of ``Input | str`` keys to a checker.
@@ -129,7 +127,7 @@ class DataLoader:
         A boolean array, or ``None`` when nothing is padded. It marks which
         steps of the outermost sequence axis are real, ``True``, and which
         are padding, ``False``: one row per sample, one column per step.
-        Training and validation leave the padded steps out.
+        Training and validation leave the padded steps out. Read only.
 
     Raises
     ------
@@ -469,29 +467,23 @@ class DataLoader:
             for node, sequence in self._sequence_specs.items()
             if any(length is None for length in sequence)
         }
-        self.mask: np.ndarray | None = None
+        self._mask: np.ndarray | None = None
         if windowed:
             dataset = self._build_windowed(self._read_windowed(source))
         else:
             dataset = self._build(self._read(source))
         # Keyed by name only here, where the data meets Keras.
         self._dataset = {node.name: values for node, values in dataset.items()}
-        if self.mask is not None:
+        if self._mask is not None:
+            self._mask.flags.writeable = False
+        if self._mask is not None:
             self._warn_uncollected_loops()
 
         self._num_steps = min(len(values) for values in self._dataset.values())
 
     @property
-    def inputs(self) -> List[str]:
-        """The names of the Inputs the samples hold, in the order of the
-        model.
-
-        Returns
-        -------
-        list of str
-            The keys of every sample and of :meth:`as_dict`.
-        """
-        return list(self._dataset.keys())
+    def mask(self) -> np.ndarray | None:
+        return self._mask
 
     def _source_text(self) -> str:
         """Where the samples came from: memory, or how many files."""
@@ -500,12 +492,12 @@ class DataLoader:
         return f"{self._num_files} file{'' if self._num_files == 1 else 's'}"
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             model=self._model,
             samples=len(self),
             source=self._source_text(),
-            inputs=self.inputs,
+            inputs=list(self._dataset),
         )
 
     def __str__(self) -> str:
@@ -572,44 +564,18 @@ class DataLoader:
             raise KeyError(
                 f"The dataset holds no data of the Input "
                 f"{getattr(key, 'name', key)!r}: "
-                f"its inputs are {self.inputs}."
+                f"its inputs are {list(self._dataset)}."
             )
         return self._dataset[node.name]
 
-    def get_step(self, idx: int) -> Dict[str, Any]:
-        """Return the sample ``idx``, the same as ``loader[idx]``.
-
-        Parameters
-        ----------
-        idx : int
-            The index of the sample, from 0 to ``len(loader) - 1``. Samples
-            are counted across the simulations, in reading order.
-
-        Returns
-        -------
-        dict of str to numpy.ndarray
-            ``{name: array}``, each array ``(*S, T, *D)``, without the batch
-            axis. Add it, ``v[None]``, before calling a model.
-
-        Raises
-        ------
-        IndexError
-            If ``idx`` is out of range ("idx out of range").
-
-        See Also
-        --------
-        DataLoader.get_samples : Samples with the batch axis.
-        """
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
         if idx < 0 or idx >= self._num_steps:
             raise IndexError(f"idx out of range: {idx} (len={self._num_steps})")
         return {k: v[idx] for k, v in self._dataset.items()}
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        return self.get_step(idx)
-
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for i in range(self._num_steps):
-            yield self.get_step(i)
+            yield self[i]
 
     def get_samples(
         self, n: int, start: int = 0, simulation: int | str = 0
@@ -653,7 +619,6 @@ class DataLoader:
         See Also
         --------
         DataLoader.as_dict : Every sample.
-        DataLoader.get_step : One sample, without the batch axis.
 
         Examples
         --------
@@ -1188,7 +1153,7 @@ class DataLoader:
             widest = max(lengths)
             for node in self._dynamic_inputs:
                 chunks[node] = [self._pad(values, widest) for values in chunks[node]]
-            self.mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
+            self._mask = np.arange(widest) < np.asarray(lengths)[:, np.newaxis]
 
         return {
             node: np.concatenate(windows, axis=0) for node, windows in chunks.items()
@@ -1235,7 +1200,7 @@ class DataLoader:
             for node in rolled:
                 chunks[node] = [self._pad(values, widest) for values in chunks[node]]
             # One row per sample: every sample of a simulation has its rollout.
-            self.mask = np.repeat(
+            self._mask = np.repeat(
                 np.arange(widest) < np.asarray(rollouts)[:, np.newaxis],
                 counts,
                 axis=0,
@@ -1299,7 +1264,9 @@ class DataLoader:
         # Window i covers values[i:i + width] and ends on sample i + past - 1,
         # so the shared range of end samples selects the windows to keep. An
         # Input without a window is the one sample, without the window axis.
-        windows = sliding_window_view(values, window_shape=width, axis=0)
+        windows = np.lib.stride_tricks.sliding_window_view(
+            values, window_shape=width, axis=0
+        )
         windows = np.moveaxis(windows[first - past + 1 : last - past + 1], -1, 1)
         if node.shape.tw is None:
             windows = windows[:, 0]
@@ -1307,7 +1274,9 @@ class DataLoader:
         # Each sliding window appends its axis; moved right after the samples it
         # becomes the outermost axis, so the innermost outer axis comes first.
         for length in reversed(sequence):
-            windows = sliding_window_view(windows, window_shape=length, axis=0)
+            windows = np.lib.stride_tricks.sliding_window_view(
+                windows, window_shape=length, axis=0
+            )
             windows = np.moveaxis(windows, -1, 1)
 
         # A sequence window is aligned to its final temporal sample. Inputs with

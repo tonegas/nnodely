@@ -388,10 +388,10 @@ class Input(Stream):
         self._input = keras.Input(shape=self.shape.tuple, name=self.name)
         # Set by feedback(): the stream fed back. None while the Input is read
         # from data.
-        self.update: Stream | None = None
+        self._update: Stream | None = None
         # The value before the first step, given with the feedback: only a
         # layer that keeps its state in the Input has one of its own.
-        self.init: Stream | float | None = None
+        self._init: Stream | float | None = None
         # A hidden state: the model's own memory, never one of its inputs. Set
         # by feedback(hidden=True), or by a layer that keeps its state in the
         # Input (Integrate, Derivative, Buffer). A Modely that does not declare
@@ -539,9 +539,9 @@ class Input(Stream):
                 f"Input {self.name!r} is fed back with a Stream, got "
                 f"{type(stream).__name__}."
             )
-        if self.update is not None:
+        if self._update is not None:
             raise ValueError(
-                f"Input {self.name!r} is already fed back with {self.update.name!r}."
+                f"Input {self.name!r} is already fed back with {self._update.name!r}."
             )
         # One sample of the Input, or no window for an Input without one.
         sample = self.shape.replace(tw=None if self.tw is None else 1)
@@ -554,8 +554,8 @@ class Input(Stream):
                 f"Input {self.name!r} is fed back with the value of one step, "
                 f"{sample}; {stream.name!r} is {stream.shape}."
             )
-        self.init = _validate_init(self.name, init)
-        self.update = stream
+        self._init = _validate_init(self.name, init)
+        self._update = stream
         return stream
 
     def get_config(self):
@@ -629,9 +629,12 @@ class Inputs(Table):
 
     _kind, _attr = "Input", "inputs"
 
-    def __init__(self, rows: list[dict]):
-        super().__init__(row["input"] for row in rows)
-        self._rows = rows
+    _rows: list[dict]
+
+    def __new__(cls, rows: list[dict]):
+        table = super().__new__(cls, (row["input"] for row in rows))
+        table._rows = rows
+        return table
 
     def _where(self, index, item) -> str:
         return "(declared)" if self._rows[index]["declared"] else "(not declared)"

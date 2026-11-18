@@ -8,7 +8,7 @@ import keras
 from nnodely.core.layer import Layer
 from nnodely.core.dag import Table
 from nnodely.core.shape import Shape
-from nnodely.core.stream import object_repr
+from nnodely.core.stream import _object_repr
 from nnodely.layers.input import _dimension, _positive_sizes
 from nnodely.utils.printers import _table
 from nnodely.utils.utils import _per_slice_initializer, _serialized_initializer
@@ -218,7 +218,7 @@ class _Value(Layer):
         else:
             value, shape = _value_layout(owner, value, dim, tw, seq)
 
-        self.value = value
+        self._value = value
         self._initializer = initializer
 
         super().__init__(
@@ -235,12 +235,12 @@ class _Value(Layer):
 
     def __repr__(self) -> str:
         # Declared by the user, it prints as its class.
-        return object_repr(self, name=self.name, shape=self.shape)
+        return _object_repr(self, name=self.name, shape=self.shape)
 
     def build_layer(self):
         return self._impl(
             value_shape=self._value_shape,
-            value=self.value,
+            value=self._value,
             initializer=self._initializer,
             draw=self._draw,
             trainable=self._trainable,
@@ -255,7 +255,7 @@ class _Value(Layer):
         config.update(self.shape.get_config())
         return config
 
-    def call(self, xs, whole: bool = False):
+    def _call(self, xs, whole: bool = False):
         # Read whole, as a layer reads one of its weights, the value keeps a
         # batch axis of one: see ParameterImpl.
         if self._layer is None:
@@ -263,12 +263,41 @@ class _Value(Layer):
         return self._layer(xs[0], whole=whole)
 
     @property
-    def _variable(self):
+    def param(self):
+        """The Keras variable that holds the current value, ``None`` before
+        :meth:`Modely.build`.
+
+        It is laid out as ``value``, ``(*S, T, *D)``, without ``T`` when there
+        is no window. Training changes the one of a Parameter not frozen,
+        never the one of a Constant. ``value`` reads it as a NumPy array;
+        ``param.assign`` sets it to a value of its shape.
+
+        Examples
+        --------
+        >>> import keras
+        >>> import numpy as np
+        >>> from nnodely import Input, Modely, Output, Parameter
+        >>> k = Parameter("k", value=[1.0, 2.0])
+        >>> k.param is None
+        True
+        >>> v = Input("v", dim=2, tw=1)
+        >>> model = Modely("param_demo", inputs=[v], outputs=[Output("y", k * v)]).build()
+        >>> _ = k.param.assign(np.array([3.0, 4.0]))
+        >>> keras.ops.convert_to_numpy(k.param)
+        array([3., 4.], dtype=float32)
+        >>> k.value
+        array([3., 4.], dtype=float32)
+        """
         return getattr(self._layer, "variable", None)
 
     @property
-    def value_numpy(self):
-        return keras.ops.convert_to_numpy(self._variable)
+    def value(self):
+        """The value as a NumPy array, laid out as :attr:`param`: the one
+        declared before :meth:`Modely.build` (``None`` without one), the one
+        :attr:`param` holds after."""
+        if self.param is None:
+            return self._value
+        return keras.ops.convert_to_numpy(self.param)
 
 
 class Parameter(_Value):
@@ -334,13 +363,13 @@ class Parameter(_Value):
     Attributes
     ----------
     value
-        The initial value, a NumPy array laid out ``(*S, T, *D)``, without
-        ``T`` when there is no window. ``None`` without a ``value``.
-        Training does not change it.
-    value_numpy
-        The current value, a NumPy array laid out as ``value``. It holds a
-        value after :meth:`Modely.build`, and is
-        ``array(None, dtype=object)`` before.
+        The value, a NumPy array laid out ``(*S, T, *D)``, without ``T``
+        when there is no window. Before :meth:`Modely.build` it is the value
+        declared, ``None`` without one; after, the value the model holds,
+        which training changes.
+    param
+        The Keras variable that holds the value, laid out as ``value``.
+        ``None`` before :meth:`Modely.build`.
 
     Returns
     -------
@@ -400,8 +429,8 @@ class Parameter(_Value):
     ``dim=(3, 2), tw=4``                                ``S=(), T=4, D=(3, 2)``
     ==================================================  ===========================
 
-    ``value`` keeps the initial value. The variable the model trains is
-    :attr:`param`, and ``value_numpy`` reads it as a NumPy array.
+    The variable the model trains is :attr:`param`, and ``value`` reads it
+    as a NumPy array.
 
     Basic Examples
     --------------
@@ -419,7 +448,7 @@ class Parameter(_Value):
     >>> keras.ops.convert_to_numpy(result["y"])
     array([[[2.],
             [6.]]], dtype=float32)
-    >>> gain.value_numpy
+    >>> gain.value
     array([2.], dtype=float32)
 
     Scope
@@ -469,7 +498,7 @@ class Parameter(_Value):
     >>> ones = Parameter("ones", dim=3, initializer="ones")
     >>> v = Input("v", dim=3, tw=1)
     >>> scaled = Modely("ones_demo", inputs=[v], outputs=[Output("s", v * ones)]).build()
-    >>> ones.value_numpy
+    >>> ones.value
     array([1., 1., 1.], dtype=float32)
 
     ``trainable=False`` creates the Parameter frozen, and :meth:`unfreeze`
@@ -491,7 +520,7 @@ class Parameter(_Value):
     >>> w = Input("w", dim=40, tw=5)
     >>> fir = Fir(kernel=filters, bias=False)(w) + Fir(kernel=whole, bias=False)(w)
     >>> drawn = Modely("draw_demo", inputs=[w], outputs=[Output("f", fir)]).build()
-    >>> bool(np.abs(filters.value_numpy).max() > 0.5), bool(np.abs(whole.value_numpy).max() > 0.5)
+    >>> bool(np.abs(filters.value).max() > 0.5), bool(np.abs(whole.value).max() > 0.5)
     (True, False)
 
     This is how :class:`Fir`, :class:`Linear`, :class:`PReLU` and
@@ -515,9 +544,9 @@ class Parameter(_Value):
 
     Properties & Relations
     ----------------------
-    ``param`` is the variable the model trains, and ``value_numpy`` reads it:
+    ``param`` is the variable the model trains, and ``value`` reads it:
 
-    >>> bool(np.all(keras.ops.convert_to_numpy(gain.param) == gain.value_numpy))
+    >>> bool(np.all(keras.ops.convert_to_numpy(gain.param) == gain.value))
     True
 
     A :class:`Constant` of the same value has the same shape, but is not
@@ -660,47 +689,9 @@ class Parameter(_Value):
             config["draw"] = list(self._draw)
         return config
 
-    @property
-    def param(self):
-        """The Keras variable that holds the current value, ``None`` before
-        :meth:`Modely.build`.
-
-        It is laid out as ``value``, ``(*S, T, *D)``, without ``T`` when there
-        is no window. Training changes it unless the Parameter is frozen.
-        Read it with ``keras.ops.convert_to_numpy``, or assign it a value of
-        its shape with ``param.assign``.
-
-        Examples
-        --------
-        >>> import keras
-        >>> import numpy as np
-        >>> from nnodely import Input, Modely, Output, Parameter
-        >>> k = Parameter("k", value=[1.0, 2.0])
-        >>> k.param is None
-        True
-        >>> v = Input("v", dim=2, tw=1)
-        >>> model = Modely("param_demo", inputs=[v], outputs=[Output("y", k * v)]).build()
-        >>> _ = k.param.assign(np.array([3.0, 4.0]))
-        >>> keras.ops.convert_to_numpy(k.param)
-        array([3., 4.], dtype=float32)
-        >>> k.value  # the initial value is kept
-        array([1., 2.], dtype=float32)
-        """
-        return self._variable
-
     def _reinitialize(self) -> None:
         if self._layer is not None:
             self._layer.reinitialize()
-
-
-class Weight(Parameter):
-    """A Parameter a layer makes for one of its weights on its first call,
-    named ``<layer>_<weight>``, such as ``fir_kernel``. It is a Parameter in
-    every way: it differs only in the class it prints, which tells it from a
-    Parameter the user declared.
-
-    .. versionadded:: 2.0
-    """
 
 
 class Parameters(Table):
@@ -722,11 +713,17 @@ class Parameters(Table):
 
     _kind, _attr = "Parameter", "parameters"
 
-    def __init__(self, groups: list[tuple[str, list]], title: str = ""):
-        super().__init__(parameter for _, group in groups for parameter in group)
-        self._groups = groups
-        self._title = title
-        self._models = [model for model, group in groups for _ in group]
+    _groups: list[tuple[str, list]]
+    _models: list
+
+    def __new__(cls, groups: list[tuple[str, list]], title: str = ""):
+        table = super().__new__(
+            cls, (parameter for _, group in groups for parameter in group)
+        )
+        table._groups = groups
+        table._title = title
+        table._models = [model for model, group in groups for _ in group]
+        return table
 
     def _where(self, index, item) -> str:
         return f"in {self._models[index]!r}"
@@ -801,11 +798,11 @@ class Constant(_Value):
     ----------
     value
         The value, a NumPy array laid out ``(*S, T, *D)``, without ``T``
-        when there is no window.
-    value_numpy
-        The value held by the built model, a NumPy array laid out as
-        ``value``. It is ``array(None, dtype=object)`` before
-        :meth:`Modely.build`.
+        when there is no window: the one declared before
+        :meth:`Modely.build`, the one the model holds after.
+    param
+        The Keras variable that holds the value, laid out as ``value``.
+        ``None`` before :meth:`Modely.build`. Training does not change it.
 
     Returns
     -------
@@ -929,15 +926,6 @@ class Constant(_Value):
         if value is None:
             raise ValueError("Constant requires a value.")
         super().__init__(name, value, None, dim, tw, seq)
-
-    @property
-    def constant(self):
-        """The Keras variable that holds the value, ``None`` before
-        :meth:`Modely.build`.
-
-        It is laid out as ``value``, and training does not change it.
-        """
-        return self._variable
 
     def get_config(self):
         # A Constant is its value: it has no initializer.

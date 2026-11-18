@@ -55,7 +55,7 @@ The model below fits :math:`u(t) = e^{-t}` from data, while imposing the law
 
    times = np.linspace(0.0, 2.0, 200)
    data = DataLoader(decay, source={"t": times, "u_meas": np.exp(-times)})
-   history = decay.train(data, epochs=50, batch_size=32, lr=1e-2, printer=None)
+   history = decay.train(data, epochs=50, batch_size=32, lr=1e-2, verbose=False)
 
 ``Gradient(order=2, wrt=t)`` gives the second derivative.
 

@@ -105,7 +105,7 @@ def _training_loss(model, data):
         optimizer="sgd",
         lr=0.0,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
     return history.losses["loss"][0]
 
@@ -123,7 +123,7 @@ def _fit(model, data, epochs, lr, **train_kwargs):
         optimizer="sgd",
         lr=lr,
         shuffle=False,
-        printer=None,
+        verbose=False,
         **train_kwargs,
     )
 
@@ -133,7 +133,7 @@ def _f32(values):
 
 
 def _value(parameter):
-    return float(np.ravel(to_numpy(parameter.value_numpy))[0])
+    return float(np.ravel(to_numpy(parameter.value))[0])
 
 
 def _gain_model(gain=2.0):
@@ -400,7 +400,7 @@ def test_train_after_removing_every_minimizer_raises():
     model.minimizers["error"].remove()
 
     with pytest.raises(ValueError, match="No minimizers"):
-        model.train(train_data=data, epochs=1, printer=None)
+        model.train(train_data=data, epochs=1, verbose=False)
 
 
 # -----------------------------------------------------------------------------
@@ -906,7 +906,7 @@ def test_training_a_minimizer_added_after_build_asks_for_a_rebuild():
     model.minimize("stream_to_three", pred, 3.0)
 
     with pytest.raises(ValueError, match="build"):
-        model.train(train_data=data, epochs=1, printer=None)
+        model.train(train_data=data, epochs=1, verbose=False)
 
 
 def test_streams_of_different_shapes_are_not_broadcast():
@@ -956,7 +956,7 @@ def test_gains_weight_the_total_loss_but_not_the_logged_losses():
         optimizer="sgd",
         lr=0.0,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
 
     np.testing.assert_allclose(
@@ -989,7 +989,7 @@ def test_two_minimizers_on_one_source_each_log_their_own_loss():
         optimizer="sgd",
         lr=0.0,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
 
     np.testing.assert_allclose(history.losses["loss_squared"][0], squared, rtol=1e-5)
@@ -1018,7 +1018,7 @@ def test_any_name_logs_a_loss_of_its_own_beside_the_totals():
         optimizer="sgd",
         lr=0.0,
         shuffle=False,
-        printer=None,
+        verbose=False,
     )
 
     for name in ("fit", "val", "val_fit", "loss"):
@@ -1103,7 +1103,7 @@ def test_minimizers_lists_only_those_of_the_model():
     top.minimize("reg", "tab_min_z", None)
 
     # The model's own, not those of the block it calls.
-    assert [(row["name"], row["model"]) for row in top.minimizers] == [
+    assert [(row.name, row.model) for row in top.minimizers] == [
         ("fit", top),
         ("reg", top),
     ]
@@ -1141,7 +1141,7 @@ def _epoch_losses(model, source):
     return {
         key: values[0]
         for key, values in model.train(
-            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
+            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, verbose=False
         ).losses.items()
     }
 
@@ -1166,12 +1166,12 @@ def test_a_model_ignores_the_minimizers_of_a_block_it_calls():
     assert {row["input"].name: row["data"] for row in top.inputs._rows} == {
         "ign_z": "required",
     }
-    assert [row["name"] for row in top.minimizers] == ["top_fit"]
+    assert [row.name for row in top.minimizers] == ["top_fit"]
     (row,) = top.outputs._rows
     assert row["minimized by"] == ["top_fit (source)"]
 
     # The block keeps its own; the model has none of the block's to remove.
-    assert [row["name"] for row in body.minimizers] == ["fit", "track"]
+    assert [row.name for row in body.minimizers] == ["fit", "track"]
     with pytest.raises(KeyError, match="no minimizer named 'ign_body.fit'"):
         top.minimizers["ign_body.fit"].remove()
 
@@ -1190,29 +1190,29 @@ def test_setting_a_listed_minimizer_changes_it_in_the_model():
 
     def total():
         return car.train(
-            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, printer=None
+            data, epochs=1, batch_size=1, optimizer="sgd", lr=0.0, verbose=False
         ).losses["loss"][0]
 
     # v = 0.3, compared with 0.
     assert total() == pytest.approx(0.3**2)
 
     rows = car.minimizers
-    rows[0]["gain"] = 0.5
-    assert rows[0]["gain"] == 0.5
+    rows[0].gain = 0.5
+    assert rows[0].gain == 0.5
     assert car._minimizers[0]["gain"] == 0.5
     # From the next train, without a build.
     assert total() == pytest.approx(0.5 * 0.3**2)
 
     # Set on the block, the block's own changes; the model does not train it.
-    wheel.minimizers[0]["loss"] = "mae"
+    wheel.minimizers[0].loss = "mae"
     assert _cells(str(wheel.minimizers).splitlines()[3])[4] == "mean_absolute_error"
     assert total() == pytest.approx(0.5 * 0.3**2)
 
     # Checked as minimize() checks them.
     with pytest.raises(ValueError, match="not negative"):
-        rows[0]["gain"] = -1.0
+        rows[0].gain = -1.0
     with pytest.raises(TypeError, match="minimize"):
-        rows[0]["source"] = "set_z"
+        rows[0].source = "set_z"  # type: ignore[misc]
     assert car._minimizers[0]["gain"] == 0.5
 
 

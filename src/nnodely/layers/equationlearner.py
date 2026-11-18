@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any, cast
 import keras
 import numpy as np
 
-from nnodely.core.dag import free_name, next_name
+from nnodely.core.dag import _free_name, _next_name
 from nnodely.core.layer import Identity, Layer
 from nnodely.core.modely import Modely
-from nnodely.core.stream import Stream, object_repr
+from nnodely.core.stream import Stream, _object_repr
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -383,7 +383,7 @@ class EquationLearner:
         if not isinstance(functions, list) or not functions:
             raise ValueError("EquationLearner requires at least one function.")
 
-        self.name = name or next_name("EquationLearner")
+        self.name = name or _next_name("EquationLearner")
         self._functions = list(functions)
         self._function_specs = [_resolve_function(function) for function in functions]
         self._n_arguments = sum(spec.arity for spec in self._function_specs)
@@ -457,12 +457,12 @@ class EquationLearner:
         the model is built; with none, it subtracts zero."""
         dropped = self._dropped.get(key)
         if dropped is None:
-            weights = projected._weight_nodes()
+            weights = projected.weights
             dropped = _DroppedTerms(
                 self._threshold,
                 features=projected._features,
-                kernel=weights[0],
-                bias=weights[1] if len(weights) > 1 else False,
+                kernel=weights["kernel"],
+                bias=weights.get("bias", False),
                 axis=projected._axis,
                 shared_kernel=projected._shared_kernel,
                 name=f"{self.name}_{key}_dropped",
@@ -473,7 +473,7 @@ class EquationLearner:
         return Subtract(name=f"{call_name}_{key}_kept")([projected, node])
 
     def __repr__(self) -> str:
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             functions=[spec.label for spec in self._function_specs],
@@ -682,7 +682,10 @@ class EquationLearner:
         """The equations :meth:`EquationLearner.plot` draws, as sympy ``Eq``."""
         import sympy
 
-        if self._linear_in is None or self._linear_in.kernel is None:
+        if (
+            self._linear_in is None
+            or getattr(self._linear_in.weights.get("kernel"), "param", None) is None
+        ):
             raise RuntimeError(
                 f"{self.name}: plot() reads the coefficients of a built model: "
                 "call the learner on its inputs and build the model first."
@@ -694,10 +697,10 @@ class EquationLearner:
             kernel, bias = (
                 np.zeros(shape)
                 if weight is None
-                else np.asarray(
-                    keras.ops.convert_to_numpy(weight), dtype=np.float64
-                ).reshape(shape)
-                for weight, shape in zip((linear.kernel, linear.bias), shapes)
+                else np.asarray(weight.value, dtype=np.float64).reshape(shape)
+                for weight, shape in zip(
+                    (linear.weights.get("kernel"), linear.weights.get("bias")), shapes
+                )
             )
             if self._threshold is not None:
                 kernel, bias = (
@@ -718,7 +721,7 @@ class EquationLearner:
         taken: set[str] = set()
 
         def symbol(name: str):
-            free = free_name(name, taken)
+            free = _free_name(name, taken)
             taken.add(free)
             return sympy.Symbol(free)
 

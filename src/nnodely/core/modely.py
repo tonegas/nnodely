@@ -6,8 +6,8 @@ from typing import Any, Callable, Literal, cast
 
 from nnodely.core import export, validation
 from nnodely.core.dag import (
-    free_name,
-    toposort,
+    _free_name,
+    _toposort,
     flatten,
     _flatten_graph,
     _undeclared_inputs,
@@ -18,10 +18,12 @@ from nnodely.core.dag import (
     _source_input_tensors,
     NameNotFound,
     Table,
-    resolve,
+    _resolve,
 )
 from nnodely.core.minimizer import (
+    Minimizer,
     MinimizerModel,
+    Minimizers,
     _check_minimizers_train_weights,
     _check_sides,
     _minimizer_stream,
@@ -29,21 +31,18 @@ from nnodely.core.minimizer import (
     _validate_gain,
 )
 from nnodely.core.results import (
-    Fields,
     TrainResult,
     ValidationResult,
-    loss_name,
-    minimizer_fields,
-    target_label,
+    _minimizer_fields,
 )
 from nnodely.utils.utils import (
     _resolve_early_stopping,
     _resolve_loss,
     _resolve_optimizer,
 )
-from nnodely.utils.printers import _resolve_printer, _table
+from nnodely.utils.printers import _LossTable, _table
 from nnodely.core.registry import ModelSerializer
-from nnodely.core.stream import Stream, Node, object_repr
+from nnodely.core.stream import Stream, Node, _object_repr
 from nnodely.layers.parameter import Constant, Parameter, Parameters, _Value
 from nnodely.core.dataloader import DataLoader
 
@@ -82,7 +81,7 @@ class Modely:
 
     A model is declared once, on streams. Objectives, called minimizers in the
     method names (:meth:`minimize`, :attr:`minimizers`,
-    :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`), are registered next. :meth:`build` then
+    :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`), are registered next. :meth:`build` then
     creates the Keras model. A :class:`DataLoader` made for the built model
     feeds :meth:`train` and :meth:`validate`.
 
@@ -327,14 +326,14 @@ class Modely:
         # another model, leaves this one as it was declared.
         self._inputs = list(inputs)
         self._outputs = list(outputs)
-        self._order = toposort(self._outputs)
+        self._order = _toposort(self._outputs)
         # Read as an output, or bound to a Loop, it passed no layer call.
         _refuse_uncalled(self._order)
         undeclared = _undeclared_inputs(self._inputs, self._outputs)
         if undeclared:
             # One entry per Input: two of one name are listed twice.
             fed_back = sorted(
-                node.name for node in undeclared if node.update is not None
+                node.name for node in undeclared if node._update is not None
             )
             raise ValueError(
                 f"Model {name!r} reads the Inputs "
@@ -388,7 +387,7 @@ class Modely:
 
     def __repr__(self) -> str:
         """One line, the fields of its row in :attr:`models`."""
-        return object_repr(
+        return _object_repr(
             self,
             name=self.name,
             inputs=self.inputs.keys(),
@@ -472,7 +471,7 @@ class Modely:
         several Inputs carry raises, listing them, and a name none carries, or
         an Input the model does not read, raises :class:`NameNotFound`.
         ``known`` is ``self.inputs._candidates()``, when the caller holds it."""
-        return resolve(
+        return _resolve(
             key,
             self.inputs._candidates() if known is None else known,
             kind="Input",
@@ -1068,7 +1067,7 @@ class Modely:
                 if exposed in self._outputs:
                     minimizer_outputs[node] = exposed.name
                     continue
-                key = free_name(node.name, keys)
+                key = _free_name(node.name, keys)
                 keys.add(key)
                 extra_outputs.append(exposed)
                 extra_keys.append(key)
@@ -1079,7 +1078,7 @@ class Modely:
         flat_outputs, flatten_memo = _flatten_graph(
             self._inputs, train_outputs, one_step=True
         )
-        flat_order = toposort(flat_outputs)
+        flat_order = _toposort(flat_outputs)
         # A minimizer side, too, is computed by a layer called on streams.
         _refuse_uncalled(flat_order)
         train_inputs = [node for node in flat_order if isinstance(node, Input)]
@@ -1223,11 +1222,11 @@ class Modely:
                 if len(node._preds) == 0:  ## Parameters and Constants
                     anchor = next(iter(tensor_map.values()), None)
                     if isinstance(node, _Value):
-                        tensor_map[node] = node.call([anchor], whole=read_whole(node))
+                        tensor_map[node] = node._call([anchor], whole=read_whole(node))
                     else:
-                        tensor_map[node] = node.call([anchor])
+                        tensor_map[node] = node._call([anchor])
                 else:
-                    tensor_map[node] = node.call(
+                    tensor_map[node] = node._call(
                         [tensor_map[pred] for pred in node._preds]
                     )
                 layers_by_source[id(node._source)] = (
@@ -1286,7 +1285,7 @@ class Modely:
 
         An objective is called a minimizer in the method names:
         ``minimize``, :attr:`minimizers` and
-        :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`. Register
+        :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`. Register
         the objectives before :meth:`build`, which adds their streams to the
         training model. The name of an objective is its key: registering a
         name again replaces that objective, in its place, with a warning.
@@ -1788,14 +1787,14 @@ class Modely:
                 "declared": id(original) in declared,
                 "flags": None if data == "required" else data,
                 "update": f"<- {data_cell}"
-                if node.update is None and id(original) in every_step
+                if node._update is None and id(original) in every_step
                 else f"{original.name}₀ = {data_cell}"
-                if node.update is None
-                else f"<- {node.update.name}, {original.name}₀ = {data_cell}",
+                if node._update is None
+                else f"<- {node._update.name}, {original.name}₀ = {data_cell}",
                 # The stream of the graph it is fed back with.
                 "update stream": None
-                if node.update is None
-                else copies.get(id(node.update), node.update),
+                if node._update is None
+                else copies.get(id(node._update), node._update),
                 "data": data,
             }
             rows.append(by_input[id(original)])
@@ -1804,7 +1803,7 @@ class Modely:
         # every step, then those inside the steps of its Loops, with the
         # stream of the graph each is fed back with.
         states: list[tuple[Input, Stream, Any, Any]] = [
-            (state, cast(Stream, state.update), state.init, state.update)
+            (state, cast(Stream, state._update), state._init, state._update)
             for state in hidden
         ]
         for loop in (node for node in read if isinstance(node, Loop)):
@@ -1957,8 +1956,8 @@ class Modely:
         by its name, ``minimizers["fit"]``, or by its index, the ``idx``
         column of the table. A name none carries raises ``KeyError``.
 
-        Each entry reads as a dict and as an object, ``m["gain"]`` or
-        ``m.gain``. Its keys are:
+        Each entry is a :class:`~nnodely.core.minimizer.Minimizer`, read by its
+        attributes:
 
         - ``name``: the name of the objective;
         - ``source`` and ``target``: the streams it compares. A number given
@@ -1971,8 +1970,9 @@ class Modely:
         objective in the model, checked as :meth:`minimize` checks it. The
         next :meth:`train` uses it, without a new build. Setting anything
         else raises ``TypeError``: register the objective again with
-        :meth:`minimize` to change what it compares. :meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>`
-        removes the objective from the model.
+        :meth:`minimize` to change what it compares. :meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>`
+        removes the objective from the model, ``minimizers.clear()`` every
+        objective. The table is otherwise a tuple, which does not change.
 
         The table gives the name, source, target, loss and gain of each. The
         objectives of the models it calls are not listed and not trained:
@@ -1999,17 +1999,17 @@ class Modely:
 
         Scope
         -----
-        Every key of an entry, read as a key or as an attribute:
+        Every attribute of an entry:
 
         >>> fit = model.minimizers["fit"]
-        >>> fit["source"] is y, fit.target.name, fit.gain, fit.model is model
+        >>> fit.source is y, fit.target.name, fit.gain, fit.model is model
         (True, 'y_meas', 1.0, True)
 
         Options
         -------
         Setting the gain, the loss or the name changes the objective:
 
-        >>> model.minimizers[0]["gain"] = 0.5
+        >>> model.minimizers[0].gain = 0.5
         >>> model.minimizers[0].loss = "mae"
         >>> fit.name = "track"
         >>> print(model.minimizers)
@@ -2248,7 +2248,7 @@ class Modely:
         ]
         picked: dict[int, Parameter] = {}
         for key in keys:
-            item = resolve(
+            item = _resolve(
                 key,
                 candidates,
                 kind="Parameter or model",
@@ -2277,9 +2277,6 @@ class Modely:
     def validate(
         self,
         val_data: DataLoader,
-        out_dir: str | os.PathLike | None = None,
-        show: bool = False,
-        history: TrainResult | dict[str, Any] | None = None,
         verbose: bool = False,
     ) -> ValidationResult:
         """Validate every minimizer of the built model on a dataset.
@@ -2294,14 +2291,6 @@ class Modely:
         val_data : DataLoader
             The data, made for this build of the model. It holds every Input
             training reads, the targets included.
-        out_dir : str, os.PathLike or None, default None
-            The folder :meth:`~nnodely.core.results.ValidationResult.plot` writes the figures to,
-            as PNG files. ``None`` writes none.
-        show : bool, default False
-            ``True`` opens the figures in an interactive Matplotlib window.
-        history : TrainResult, dict or None, default None
-            The losses of a training, drawn as curves in a figure of their
-            own.
         verbose : bool, default False
             ``True`` prints the table of the result.
 
@@ -2312,8 +2301,9 @@ class Modely:
             ``loss_<minimizer>`` the loss of each, the keys of :meth:`train`;
             ``signals``, a :class:`~nnodely.core.validation.Signal` per
             minimizer, the signals it compared and their metrics;
-            ``minimizers``, a snapshot of those validated; ``figures``, the
-            files written.
+            ``minimizers``, a snapshot of those validated. Its
+            :meth:`~nnodely.core.results.ValidationResult.plot` draws the
+            figures.
 
         Raises
         ------
@@ -2329,6 +2319,7 @@ class Modely:
         Modely.train : Train the model, with ``val_data`` too.
         Modely.minimize : Register an objective.
         DataLoader : The data of a model.
+        ~nnodely.core.results.ValidationResult.plot : Draw the figures.
 
         Notes
         -----
@@ -2368,10 +2359,12 @@ class Modely:
         │     │ total     │        │        │                    │      │ 1.0000e+00 │
         └─────┴───────────┴────────┴────────┴────────────────────┴──────┴────────────┘
 
-        ``out_dir`` writes the figures, and ``history`` adds the loss curves:
+        ``plot`` writes the figures to ``out_dir``, and ``history`` adds the
+        loss curves:
 
-        >>> trained = model.train(data, epochs=1, batch_size=4, printer=None)
-        >>> result = model.validate(data, out_dir="figures", history=trained)
+        >>> trained = model.train(data, epochs=1, batch_size=4, verbose=False)
+        >>> result = model.validate(data)
+        >>> _ = result.plot(out_dir="figures", history=trained)
         >>> from pathlib import Path
         >>> [Path(path).as_posix() for path in result.figures]
         ['figures/offset_0_fit.png', 'figures/offset_history.png']
@@ -2390,14 +2383,7 @@ class Modely:
         """
         if self._keras_model is not None:
             self._check_names_built()
-        return validation.validate(
-            self,
-            val_data,
-            out_dir=out_dir,
-            show=show,
-            history=history,
-            verbose=verbose,
-        )
+        return validation.validate(self, val_data, verbose=verbose)
 
     def _training_arrays(self, data: DataLoader) -> tuple[dict, np.ndarray | None]:
         """The model's inputs and, when simulations were padded, their mask.
@@ -2430,8 +2416,7 @@ class Modely:
         lr: float = 1e-3,
         shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
-        early_stopping_kwargs: dict[str, Any] | None = None,
-        printer: str | keras.callbacks.Callback | None = "legacy",
+        verbose: bool = True,
         jit_compile: str | bool = "auto",
     ):
         r"""Train the built model on its objectives, and return the losses of
@@ -2469,10 +2454,11 @@ class Modely:
             Ends training before ``epochs`` once it stops improving:
 
             - the name of a loss training logs, such as ``"val_loss_fit"``,
-              made into a
-              ``keras.callbacks.EarlyStopping`` with ``early_stopping_kwargs``
-              as its other arguments. It looks for a minimum;
-            - a dict of the arguments of ``keras.callbacks.EarlyStopping``;
+              made into a ``keras.callbacks.EarlyStopping`` that monitors it
+              with the Keras defaults. It looks for a minimum;
+            - a dict of the arguments of ``keras.callbacks.EarlyStopping``,
+              such as ``{"monitor": "val_loss", "patience": 10,
+              "restore_best_weights": True}``;
             - a callback: a configured ``keras.callbacks.EarlyStopping``, or
               one of your own that sets ``self.model.stop_training = True``;
             - ``None``, training runs every epoch.
@@ -2484,24 +2470,20 @@ class Modely:
             More arguments of a named optimizer, such as
             ``{"weight_decay": 1e-4, "global_clipnorm": 1.0}``. It cannot
             hold ``"learning_rate"``: that is ``lr``.
-        early_stopping_kwargs : dict or None, default None
-            More arguments of the ``EarlyStopping`` that a name given as
-            ``early_stopping`` makes, such as
-            ``{"patience": 10, "restore_best_weights": True}``.
-        printer : str, keras.callbacks.Callback or None, default "legacy"
-            How progress is shown:
-
-            - ``"legacy"``: a table of the losses of every objective, a row
-              per epoch, drawn as the tables of a model are;
-            - ``"tiny"``: one compact block, redrawn at every epoch;
-            - ``"nnodely"``: an animated console with a chart of the total
-              loss;
-            - ``None``: nothing;
-            - a Keras callback, used as given, such as a
-              :class:`LegacyPrinter`.
+        verbose : bool, default True
+            ``True`` prints the progress: a table of the losses of every
+            objective, train and val, a row per sampled epoch (at most 20),
+            then the training time. ``False`` prints nothing.
         jit_compile : str or bool, default "auto"
-            Whether Keras compiles the training step: ``"auto"``, ``True`` or
-            ``False``, as ``keras.Model.compile`` takes it.
+            Whether the training step is compiled, as
+            ``keras.Model.compile`` takes it:
+
+            - ``"auto"``: Keras decides. JAX compiles with XLA; TensorFlow
+              compiles with XLA only on a GPU; PyTorch runs eagerly;
+            - ``True``: compiled with XLA on TensorFlow and JAX, with
+              ``torch.compile`` on PyTorch;
+            - ``False``: not compiled, the step runs op by op. Slower, but
+              an error points at the operation that raised it.
 
         Returns
         -------
@@ -2530,10 +2512,11 @@ class Modely:
             If the optimizer name is unknown ("The supported optimizers
             are"), or ``optimizer_kwargs`` holds ``"learning_rate"``. If early
             stopping monitors a quantity training does not log ("which
-            training does not log"). If ``printer`` is unknown.
+            training does not log"). If
+            ``jit_compile`` is not ``"auto"``, ``True`` or ``False``.
         TypeError
-            If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` is not
-            a bool, or ``early_stopping`` has another type.
+            If ``train_data`` is not a :class:`DataLoader`, ``shuffle`` or
+            ``verbose`` is not a bool, or ``early_stopping`` has another type.
 
         See Also
         --------
@@ -2566,8 +2549,8 @@ class Modely:
         >>> model = model.minimize("fit", y, y_meas).build()
         >>> samples = np.arange(8.0)
         >>> data = DataLoader(model, source={"x": samples, "y_meas": samples})
-        >>> trained = model.train(data, epochs=2, batch_size=4, printer=None)
-        >>> trained.losses.keys(), trained.epochs
+        >>> trained = model.train(data, epochs=2, batch_size=4, verbose=False)
+        >>> list(trained.losses), trained.epochs
         (['loss', 'loss_fit'], 2)
         >>> trained
         TrainResult(model='offset', epochs=2, samples=8, loss=...,
@@ -2579,8 +2562,8 @@ class Modely:
         -------
         ``val_data`` adds the validation losses:
 
-        >>> trained = model.train(data, val_data=data, epochs=1, batch_size=4, printer=None)
-        >>> trained.losses.keys()
+        >>> trained = model.train(data, val_data=data, epochs=1, batch_size=4, verbose=False)
+        >>> list(trained.losses)
         ['loss', 'loss_fit', 'val_loss', 'val_loss_fit']
 
         ``optimizer`` by name, with ``lr`` and ``optimizer_kwargs``. An
@@ -2588,17 +2571,17 @@ class Modely:
         passed the same way:
 
         >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="adamw", lr=1e-2,
-        ...                       optimizer_kwargs={"weight_decay": 1e-4}, printer=None)
+        ...                       optimizer_kwargs={"weight_decay": 1e-4}, verbose=False)
 
-        ``early_stopping`` by the name of a logged loss:
+        ``early_stopping`` by the arguments of a Keras ``EarlyStopping``:
 
-        >>> trained = model.train(data, epochs=50, batch_size=4, printer=None,
-        ...                       early_stopping="loss_fit",
-        ...                       early_stopping_kwargs={"patience": 1, "min_delta": 1e9})
+        >>> trained = model.train(data, epochs=50, batch_size=4, verbose=False,
+        ...                       early_stopping={"monitor": "loss_fit", "patience": 1,
+        ...                                       "min_delta": 1e9})
         >>> trained.epochs
         2
 
-        ``shuffle=False`` keeps the order of the samples, and ``printer=None``
+        ``shuffle=False`` keeps the order of the samples, and ``verbose=False``
         prints nothing.
 
         Properties & Relations
@@ -2610,7 +2593,7 @@ class Modely:
         >>> model = model.minimize("again", y, y_meas, loss="mae", gain=0.5)
         >>> model = model.build(keep_weights=False)
         >>> trained = model.train(data, epochs=1, batch_size=4, optimizer="sgd", lr=0.0,
-        ...                       printer=None)
+        ...                       verbose=False)
         >>> print(trained)
         ┏━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┓
         ┃ idx ┃ minimizer ┃ loss                ┃ gain ┃ loss value ┃
@@ -2627,7 +2610,7 @@ class Modely:
         ---------------
         A validation loss is logged only with ``val_data``:
 
-        >>> model.train(data, epochs=5, batch_size=4, early_stopping="val_loss", printer=None)
+        >>> model.train(data, epochs=5, batch_size=4, early_stopping="val_loss", verbose=False)
         Traceback (most recent call last):
             ...
         ValueError: Early stopping monitors 'val_loss', which training does not log: ...Pass val_data to monitor a validation loss.
@@ -2651,6 +2634,14 @@ class Modely:
             raise ValueError(f"lr is a non-negative number, got {lr!r}.")
         if not isinstance(shuffle, bool):
             raise TypeError(f"shuffle is True or False, got {shuffle!r}.")
+        if not isinstance(verbose, bool):
+            raise TypeError(f"verbose is True or False, got {verbose!r}.")
+        if jit_compile not in ("auto", True, False):
+            raise ValueError(
+                f"jit_compile is 'auto', True or False, got {jit_compile!r}: "
+                "'auto' lets Keras decide, True compiles the training step, "
+                "False runs it op by op."
+            )
         if not hasattr(train_data, "as_dict"):
             raise TypeError(
                 f"train_data is a DataLoader, got {type(train_data).__name__}: "
@@ -2673,7 +2664,7 @@ class Modely:
         ]
         if val_data is not None:
             logged += [f"val_{name}" for name in logged]
-        stopper = _resolve_early_stopping(early_stopping, early_stopping_kwargs, logged)
+        stopper = _resolve_early_stopping(early_stopping, logged)
         self._keras_model.set_minimizers(_resolve_minimizer_terms(self))
         _check_minimizers_train_weights(self, self._keras_model)
 
@@ -2700,7 +2691,11 @@ class Modely:
             shuffle=shuffle,
             verbose=0,  # type: ignore
             callbacks=[
-                _resolve_printer(printer, epochs, self._minimizers, self.name),
+                *(
+                    [_LossTable(epochs, [m["name"] for m in self._minimizers])]
+                    if verbose
+                    else []
+                ),
                 *([stopper] if stopper is not None else []),
             ],
             validation_data=validation_data,
@@ -2709,8 +2704,8 @@ class Modely:
         return TrainResult(
             model=self.name,
             samples=n_samples,
-            minimizers=minimizer_fields(self._minimizers),
-            losses=Fields((key, np.asarray(history.history[key])) for key in logged),
+            minimizers=_minimizer_fields(self._minimizers),
+            losses={key: np.asarray(history.history[key]) for key in logged},
         )
 
     # -------------------------------------------------------------------------
@@ -2793,7 +2788,6 @@ class Modely:
         out_dir: str | os.PathLike,
         filename: str | None = None,
         *,
-        open_subgraph_in_new_tab: bool = False,
         physics: bool = True,
     ) -> None:
         """Write the graph of the model as interactive HTML pages, to open in a
@@ -2813,8 +2807,6 @@ class Modely:
         filename : str or None, default None
             The name of the main page. ``None`` names it after the model. The
             suffix ``.html`` is added when missing.
-        open_subgraph_in_new_tab : bool, default False
-            ``True`` opens the page of a block in a new browser tab.
         physics : bool, default True
             The pages open on a left-to-right layout, and switch to a force
             layout with a button. ``True`` lets the force layout place the
@@ -2862,35 +2854,8 @@ class Modely:
             model=self,
             out_dir=out_dir,
             filename=filename,
-            open_subgraph_in_new_tab=open_subgraph_in_new_tab,
             physics=physics,
         )
-
-    def summary(self):
-        """Print the Keras summary of the built model: its layers, their output
-        shapes and their numbers of weights.
-
-        The summary is the one of the Keras model training runs, named
-        ``<name>_train``. A model not built prints nothing.
-
-        See Also
-        --------
-        Modely.parameters : The Parameters, as a table.
-        Modely.build : Create the Keras model.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, Modely, Output
-        >>> x = Input("x", tw=2)
-        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
-        >>> model.summary()
-        Model: "double_train"
-        ...
-
-        .. versionadded:: 2.0
-        """
-        if self._keras_model is not None:
-            self._keras_model.summary()
 
     # -------------------------------------------------------------------------
     # Save and load
@@ -3133,7 +3098,7 @@ class Modely:
         export.export_keras(self, path, filename)
 
     @staticmethod
-    def import_keras(filename: str, safe_mode: bool = True):
+    def import_keras(filename: str):
         """Read a ``.keras`` file written by :meth:`export_keras`, and return
         it as a ``keras.Model``.
 
@@ -3145,10 +3110,6 @@ class Modely:
         ----------
         filename : str
             The path of the ``.keras`` file.
-        safe_mode : bool, default True
-            Keras' safe mode, which refuses to load code stored in the file,
-            such as a Python lambda. Pass ``False`` only for a file you
-            trust.
 
         Returns
         -------
@@ -3176,14 +3137,13 @@ class Modely:
 
         .. versionadded:: 2.0
         """
-        return export.import_keras(filename, safe_mode=safe_mode)
+        return export.import_keras(filename)
 
     def export_onnx(
         self,
         path: str | os.PathLike,
         filename: str | None = None,
         *,
-        input_signature=None,
         batch_size: int = 1,
         seq: int | None = None,
         opset_version: int | None = None,
@@ -3210,17 +3170,16 @@ class Modely:
         filename : str or None, default None
             The name of the file. ``None`` names it after the model. The
             suffix ``.onnx`` is added when missing.
-        input_signature : list or None, default None
-            The shapes the exported graph takes, as Keras'
-            ``Model.export`` takes them. ``None`` fixes them from
-            ``batch_size`` and ``seq``, which it overrides.
         batch_size : int, default 1
             The number of samples the file computes at once, a positive int.
         seq : int or None, default None
             The length of every sequence of dynamic length, a positive int.
             Needed when the model reads one, unused otherwise.
         opset_version : int or None, default None
-            The ONNX opset. ``None`` takes the exporter's default.
+            The version of the ONNX operator set the file declares. A runtime
+            loads only the opsets it knows: give a lower one for an older
+            runtime, such as an embedded one. ``None`` takes the default of
+            the exporter of the backend.
         verbose : bool, default False
             ``True`` prints the messages of the exporter.
 
@@ -3240,7 +3199,7 @@ class Modely:
 
         See Also
         --------
-        Modely.validate_onnx : Run the exported file.
+        Modely.run_onnx : Run the exported file.
         Modely.export_keras : Write the model as a Keras file.
         Modely.save : Save the model to keep working on it with nnodely.
 
@@ -3272,7 +3231,7 @@ class Modely:
         >>> double = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)]).build()
         >>> folder = tempfile.mkdtemp()
         >>> double.export_onnx(folder)  # folder/double.onnx, one sample
-        >>> Modely.validate_onnx(f"{folder}/double.onnx", {"x": np.ones((1, 1, 1))})
+        >>> Modely.run_onnx(f"{folder}/double.onnx", {"x": np.ones((1, 1, 1))})
         [array([[[2.]]], dtype=float32)]
 
         Options
@@ -3280,7 +3239,7 @@ class Modely:
         ``batch_size`` fixes the number of samples of every call:
 
         >>> double.export_onnx(folder, "four", batch_size=4)
-        >>> Modely.validate_onnx(f"{folder}/four.onnx", {"x": np.ones((4, 1, 1))})[0].shape
+        >>> Modely.run_onnx(f"{folder}/four.onnx", {"x": np.ones((4, 1, 1))})[0].shape
         (4, 1, 1)
 
         ``seq`` fixes the number of steps of a rollout that follows
@@ -3290,7 +3249,7 @@ class Modely:
         >>> step = Modely("counter", inputs=[x], outputs=[Output("s", total.feedback(total + x, hidden=True))])
         >>> counter = step.loop().build()
         >>> counter.export_onnx(folder, seq=3)
-        >>> result = Modely.validate_onnx(f"{folder}/counter.onnx", {"x": np.ones((1, 3, 1, 1))})
+        >>> result = Modely.run_onnx(f"{folder}/counter.onnx", {"x": np.ones((1, 3, 1, 1))})
         >>> result[0].ravel()
         array([1., 2., 3.], dtype=float32)
 
@@ -3313,7 +3272,6 @@ class Modely:
             self,
             path,
             filename,
-            input_signature=input_signature,
             batch_size=batch_size,
             seq=seq,
             opset_version=opset_version,
@@ -3321,12 +3279,11 @@ class Modely:
         )
 
     @staticmethod
-    def validate_onnx(
+    def run_onnx(
         filename: str | os.PathLike,
         inputs: dict,
         *,
         return_dict: bool = False,
-        providers: list[str] | None = None,
     ):
         """Run an ``.onnx`` file written by :meth:`export_onnx` with ONNX
         Runtime, and return its outputs.
@@ -3345,9 +3302,6 @@ class Modely:
         return_dict : bool, default False
             ``False`` returns the outputs as a list of arrays, in the order
             of the file. ``True`` returns ``{output name: array}``.
-        providers : list of str or None, default None
-            The ONNX Runtime execution providers, such as
-            ``["CPUExecutionProvider"]``. ``None`` takes the default ones.
 
         Returns
         -------
@@ -3372,16 +3326,14 @@ class Modely:
         the TensorFlow or the PyTorch backend::
 
             sample = {"x": np.array([[[1.0], [2.0]]])}
-            Modely.validate_onnx("exports/double.onnx", sample)
+            Modely.run_onnx("exports/double.onnx", sample)
             # [array([[[2.], [4.]]], dtype=float32)]
-            Modely.validate_onnx("exports/double.onnx", sample, return_dict=True)
+            Modely.run_onnx("exports/double.onnx", sample, return_dict=True)
             # {'y': array([[[2.], [4.]]], dtype=float32)}
 
         .. versionadded:: 2.0
         """
-        return export.validate_onnx(
-            filename, inputs, return_dict=return_dict, providers=providers
-        )
+        return export.run_onnx(filename, inputs, return_dict=return_dict)
 
 
 class ModelCall(Node):
@@ -3406,17 +3358,20 @@ class IntermediateOutput(Output):
 
 class Models(Table):
     """The models a model computes with, as :attr:`Modely.models` lists them:
-    a list of the Modely objects, printed as a table of their inputs, their
+    a tuple of the Modely objects, printed as a table of their inputs, their
     outputs, the number of Parameters each computes with and whether it is
     built."""
 
     _kind, _attr = "model", "models"
 
-    def __init__(self, models, title: str = "", where: list[str] | None = None):
-        super().__init__(models)
-        self._title = title
+    _places: list[str]
+
+    def __new__(cls, models, title: str = "", where: list[str] | None = None):
+        table = super().__new__(cls, models)
+        table._title = title
         # Where each one is, for the listing of a name several carry.
-        self._places = where or ["" for _ in models]
+        table._places = where or ["" for _ in models]
+        return table
 
     def _where(self, index, item) -> str:
         return self._places[index]
@@ -3434,200 +3389,6 @@ class Models(Table):
             for model in self
         ]
         return _table(header, [("", rows)], indexed=True)
-
-
-class Minimizer(Mapping):
-    """One objective of a model, as :attr:`~nnodely.Modely.minimizers` lists
-    it.
-
-    You do not create one yourself: :meth:`~nnodely.Modely.minimize`
-    registers the objective, and ``model.minimizers["fit"]`` or
-    ``model.minimizers[0]`` picks its row.
-
-    Each is read as an attribute or as a key, ``m.gain`` or ``m["gain"]``.
-    Setting ``name``, ``loss`` or ``gain`` changes the objective in its
-    model, checked as :meth:`~nnodely.Modely.minimize` checks it, from the
-    next :meth:`~nnodely.Modely.train`. Setting anything else raises
-    ``TypeError``: register the objective again to change what it compares.
-    :meth:`remove` removes it from its model.
-
-    Attributes
-    ----------
-    name : str
-        The name of the objective, the key of its loss, ``loss_<name>``.
-    source : Stream
-        The prediction it compares.
-    target : Stream
-        The reference it compares the prediction with. A number given as the
-        target is a :class:`~nnodely.Constant`.
-    loss : keras.losses.Loss or callable
-        The loss function.
-    gain : float
-        The weight of its loss in the total loss.
-    model : Modely
-        The model it belongs to.
-
-    Basic Examples
-    --------------
-    >>> from nnodely import Input, Modely, Output
-    >>> x = Input("x", tw=1)
-    >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
-    >>> model = model.minimize("fit", "y", Input("y_meas", tw=1))
-    >>> fit = model.minimizers["fit"]
-    >>> fit.name, fit.source.name, fit.target.name, fit.gain
-    ('fit', 'y', 'y_meas', 1.0)
-    >>> fit.gain = 2.0
-    >>> model.minimizers[0]["gain"]
-    2.0
-
-    Possible Issues
-    ---------------
-    What it compares is set by :meth:`~nnodely.Modely.minimize`:
-
-    >>> fit.source = x
-    Traceback (most recent call last):
-        ...
-    TypeError: Minimizer 'fit': its name, loss and gain can be set, not its 'source'; ...
-
-    .. versionadded:: 2.0
-    """
-
-    _SETTABLE = ("name", "loss", "gain")
-    # No attribute of its own to set: one set by mistake would be lost.
-    __slots__ = ("_minimizer", "_model")
-
-    def __init__(self, minimizer: dict, model: "Modely"):
-        # The model's own entry, not a copy: what is set is set there.
-        object.__setattr__(self, "_minimizer", minimizer)
-        object.__setattr__(self, "_model", model)
-
-    def __getattr__(self, key):
-        if key in ("name", "source", "target", "loss", "gain"):
-            return self._minimizer[key]
-        if key == "model":
-            return self._model
-        raise AttributeError(f"Minimizer has no attribute {key!r}.")
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def __getitem__(self, key):
-        return self._model if key == "model" else self._minimizer[key]
-
-    def __iter__(self):
-        return iter([*self._minimizer, "model"])
-
-    def __len__(self):
-        return len(self._minimizer) + 1
-
-    def __repr__(self):
-        return object_repr(
-            self,
-            name=self.name,
-            source=self.source,
-            target=target_label(self.target),
-            loss=loss_name(self.loss),
-            gain=self.gain,
-            model=self._model,
-        )
-
-    def remove(self) -> None:
-        """Remove this objective from its model.
-
-        Pick it first, by its name or by its index in
-        :attr:`~nnodely.Modely.minimizers`. The next
-        :meth:`~nnodely.Modely.train` and :meth:`~nnodely.Modely.validate`
-        leave it out. The model needs no new build. The row stays readable,
-        but no longer belongs to the model: setting it raises.
-
-        Raises
-        ------
-        KeyError
-            When it is picked, if no objective has that name. Nothing is
-            removed.
-        IndexError
-            When it is picked, if the index is out of range.
-
-        See Also
-        --------
-        nnodely.Modely.minimize : Register an objective.
-        nnodely.Modely.minimizers : The objectives, as a table.
-
-        Basic Examples
-        --------------
-        >>> from nnodely import Input, Modely, Output
-        >>> x = Input("x", tw=1)
-        >>> model = Modely("double", inputs=[x], outputs=[Output("y", 2.0 * x)])
-        >>> model = model.minimize("a", "y", 1.0).minimize("b", "y", 2.0)
-        >>> model.minimizers["a"].remove()
-        >>> [m.name for m in model.minimizers]
-        ['b']
-
-        Options
-        -------
-        By index:
-
-        >>> model.minimizers[0].remove()
-        >>> len(model.minimizers)
-        0
-
-        Possible Issues
-        ---------------
-        A name no objective has raises, as in every table:
-
-        >>> model.minimizers["c"].remove()
-        Traceback (most recent call last):
-            ...
-        nnodely.core.dag.NameNotFound: ...no minimizer named 'c'...
-
-        A row removed is no longer the model's:
-
-        >>> fit = model.minimize("fit", "y", 1.0).minimizers["fit"]
-        >>> fit.remove()
-        >>> fit.gain = 2.0
-        Traceback (most recent call last):
-            ...
-        ValueError: Minimizer 'fit' was removed from model 'double': declare it again with minimize().
-
-        .. versionadded:: 2.0
-        """
-        model = self._model
-        model._minimizers = [m for m in model._minimizers if m is not self._minimizer]
-
-    def __setitem__(self, key, value):
-        if key not in self._SETTABLE:
-            raise TypeError(
-                f"Minimizer {self._minimizer['name']!r}: its name, loss and gain "
-                f"can be set, not its {key!r}; declare it again with minimize() "
-                "to change what it compares."
-            )
-        self._model._set_minimizer(self._minimizer, key, value)
-
-
-class Minimizers(Table):
-    """The minimizers of a model, as :attr:`Modely.minimizers` lists them: a
-    list of :class:`Minimizer`, printed as a table of the streams each
-    compares, its loss and its gain."""
-
-    _HEADER = ("minimizer", "source", "target", "loss", "gain")
-
-    _kind, _attr = "minimizer", "minimizers"
-
-    def __init__(self, minimizers: list[Minimizer]):
-        super().__init__(minimizers)
-
-    def __str__(self):
-        rows = [
-            (
-                m.name,
-                m.source.name,
-                str(target_label(m.target)),
-                loss_name(m.loss),
-                str(m.gain),
-            )
-            for m in self
-        ]
-        return _table(self._HEADER, [("", rows)], indexed=True)
 
 
 def _refresh_keras_inputs(model: Modely) -> None:
@@ -3669,7 +3430,7 @@ def _rename_hidden_states(model: Modely) -> None:
             and not node._hidden_by_user
             and taken.setdefault(node.name, node) is not node
         ):
-            node.name = free_name(node.name, taken)
+            node.name = _free_name(node.name, taken)
             node._input = keras.Input(shape=node.shape.tuple, name=node.name)
             taken[node.name] = node
 

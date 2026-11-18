@@ -7,7 +7,6 @@ outputs, and only the inputs they read.
 import importlib.util
 import os
 from pathlib import Path
-from typing import Any
 
 import keras
 import numpy as np
@@ -164,15 +163,12 @@ def _standalone_copy(keras_model: keras.Model) -> keras.Model:
     return copy
 
 
-def import_keras(filename: str, safe_mode: bool = True):
+def import_keras(filename: str):
     """The implementation of :meth:`Modely.import_keras`."""
     path = Path(filename)
     if path.suffix.lower() != ".keras":
         path = path.with_suffix(".keras")
-    return keras.models.load_model(
-        path,
-        safe_mode=safe_mode,
-    )
+    return keras.models.load_model(path)
 
 
 def export_onnx(
@@ -180,7 +176,6 @@ def export_onnx(
     path: str | os.PathLike,
     filename: str | None = None,
     *,
-    input_signature=None,
     batch_size: int = 1,
     seq: int | None = None,
     opset_version: int | None = None,
@@ -248,19 +243,15 @@ def export_onnx(
 
     # Every axis fixed: the torch exporter keeps no dynamic axis right, and
     # jax2onnx none through nnodely's layers.
-    if input_signature is None:
-        input_signature = _static_input_signature(
+    export_model.export(
+        file,
+        format="onnx",
+        verbose=verbose,
+        input_signature=_static_input_signature(
             export_model, batch_size, seq, model.name
-        )
-
-    export_kwargs: dict[str, Any] = {
-        "verbose": verbose,
-        "input_signature": input_signature,
-    }
-    if opset_version is not None:
-        export_kwargs["opset_version"] = opset_version
-
-    export_model.export(file, format="onnx", **export_kwargs)
+        ),
+        opset_version=opset_version,
+    )
     _refuse_unknown_operators(file, model.name)
     _set_onnx_io_names(model, file, seq)
 
@@ -363,14 +354,13 @@ def _set_onnx_io_names(model, path: Path, seq: int | None = None) -> None:
     onnx.save(onnx_model, str(path))
 
 
-def validate_onnx(
+def run_onnx(
     filename: str | os.PathLike,
     inputs: dict,
     *,
     return_dict: bool = False,
-    providers: list[str] | None = None,
 ):
-    """The implementation of :meth:`Modely.validate_onnx`."""
+    """The implementation of :meth:`Modely.run_onnx`."""
     import onnxruntime as ort
 
     path = Path(filename)
@@ -379,8 +369,7 @@ def validate_onnx(
     if not path.is_file():
         raise FileNotFoundError(f"ONNX model not found: {path}")
 
-    session_kwargs = {} if providers is None else {"providers": providers}
-    session = ort.InferenceSession(str(path), **session_kwargs)  # type: ignore
+    session = ort.InferenceSession(str(path))
     input_names = [item.name for item in session.get_inputs()]
     missing = [name for name in input_names if name not in inputs]
     if missing:

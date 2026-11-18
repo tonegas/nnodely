@@ -53,8 +53,7 @@ def test_every_axis_of_a_shape_has_one_place_in_the_tensor(shape):
 def test_the_window_follows_the_sequence_and_the_outer_axis_comes_first(shape):
     sizes = _tensor(shape).shape
     assert shape.tw_axis == 1 + shape.seq_rank
-    assert sizes[OUTER_AXIS] == shape.outer
-    assert shape.outer == (shape.seq[0] if shape.seq else shape.tw)
+    assert sizes[OUTER_AXIS] == (shape.seq[0] if shape.seq else shape.tw)
 
 
 def test_a_stream_has_a_window_of_at_least_one_sample():
@@ -100,14 +99,13 @@ def test_a_rollout_is_a_new_outer_sequence_axis(shape):
     rolled = shape.with_seq(9)
     assert rolled.seq == (9, *shape.seq)
     assert (rolled.tw, rolled.dim) == (shape.tw, shape.dim)
-    assert rolled.outer == 9
     assert _tensor(rolled).shape[OUTER_AXIS] == 9
     assert rolled.without_outer_seq().dimensions == shape.dimensions
 
 
 def test_without_a_sequence_the_outer_axis_is_the_window():
     shape = Shape(dim=3, tw=5)
-    assert shape.outer == shape.tw == 5
+    assert shape.tw == 5
     assert shape.tw_axis == OUTER_AXIS
 
 

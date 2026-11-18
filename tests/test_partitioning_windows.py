@@ -92,7 +92,7 @@ def test_partitioning_windows():
     )
 
     assert data_train._dataset is not None
-    assert data_train.inputs == ["x", "y", "z"]
+    assert list(data_train.as_dict()) == ["x", "y", "z"]
     specs = {node.name: spec for node, spec in data_train._input_specs.items()}
     assert specs == {"x": [5, 0], "y": [2, 3], "z": [4, 3]}
     print("Data train dataset:", {k: v.shape for k, v in data_train._dataset.items()})

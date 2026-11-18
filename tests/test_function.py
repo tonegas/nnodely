@@ -131,7 +131,7 @@ def test_keras_function_trains_the_weights_of_its_layer():
     model.build()
 
     data = DataLoader(model, source={"kf_train_x": np.ones((1, 1), dtype=np.float32)})
-    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, printer=None)
+    model.train(data, epochs=1, batch_size=1, optimizer="sgd", lr=0.25, verbose=False)
 
     np.testing.assert_allclose(to_numpy(gain.gain), 2.0, rtol=1e-5)
 
@@ -219,7 +219,7 @@ def test_keras_functions_export_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "kf_saved")
-    result = Modely.validate_onnx(tmp_path / "kf_saved.onnx", data, return_dict=True)
+    result = Modely.run_onnx(tmp_path / "kf_saved.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _SAVED_OUTPUTS:

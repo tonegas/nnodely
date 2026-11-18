@@ -45,7 +45,7 @@ Step 2: objectives
 :meth:`~nnodely.Modely.minimize` registers an **objective**: a loss between a
 *source* and a *target*, which training reduces. The method names call it a
 *minimizer*: :attr:`~nnodely.Modely.minimizers` lists them, and
-:meth:`minimizers[name].remove() <nnodely.core.modely.Minimizer.remove>` removes one. Every objective has a
+:meth:`minimizers[name].remove() <nnodely.core.minimizer.Minimizer.remove>` removes one. Every objective has a
 name, which labels its loss during training and validation. Declare the
 objectives before :meth:`~nnodely.Modely.build`:
 
@@ -99,9 +99,9 @@ on a validation set at the end of every epoch:
        epochs=50,
        batch_size=32,
        lr=1e-2,
-       printer=None,
+       verbose=False,
    )
-   print(trained.losses.keys())
+   print(list(trained.losses))
    print(trained.epochs, trained.losses["val_loss_one_step"].shape)
 
 .. code-block:: text
@@ -131,16 +131,11 @@ The arguments, with their defaults:
 ``lr=1e-3``, ``optimizer_kwargs=None``
     The learning rate and the other arguments of an optimizer given by name.
     An optimizer instance keeps its own.
-``early_stopping=None``, ``early_stopping_kwargs=None``
+``early_stopping=None``
     When to stop before ``epochs`` (see Step 5).
-``printer="legacy"``
-    How the progress is shown:
-
-    - ``"legacy"``: a table of the losses of every objective;
-    - ``"tiny"``: one compact block;
-    - ``"nnodely"``: an animated console with a chart of the total loss;
-    - ``None``: nothing;
-    - any ``keras.callbacks.Callback``.
+``verbose=True``
+    ``True`` prints a table of the losses of every objective, a row per
+    sampled epoch; ``False`` prints nothing.
 
 Every call continues from the current weights, so a model can be trained in
 several rounds.
@@ -157,7 +152,7 @@ Step 4: optimizers
        optimizer="adamw",
        lr=1e-3,
        optimizer_kwargs={"weight_decay": 1e-4, "global_clipnorm": 1.0},
-       printer="tiny",
+       verbose=False,
    )
 
    trained = model.train(
@@ -165,7 +160,7 @@ Step 4: optimizers
        epochs=10,
        batch_size=32,
        optimizer=keras.optimizers.SGD(learning_rate=1e-2, momentum=0.9),
-       printer=None,
+       verbose=False,
    )
 
 Step 5: early stopping
@@ -175,9 +170,11 @@ Step 5: early stopping
 improving. It takes one of:
 
 - the **name** of the loss to watch, made into a Keras `EarlyStopping
-  <https://keras.io/api/callbacks/early_stopping/>`_ with
-  ``early_stopping_kwargs`` as its other arguments;
-- a **dict** of the arguments of ``keras.callbacks.EarlyStopping``;
+  <https://keras.io/api/callbacks/early_stopping/>`_ with its default
+  arguments;
+- a **dict** of the arguments of ``keras.callbacks.EarlyStopping``: the loss
+  to watch as ``"monitor"``, and ``"patience"``,
+  ``"restore_best_weights"``, ...;
 - a **callback**: a configured ``keras.callbacks.EarlyStopping``, or one of
   your own that sets ``self.model.stop_training = True``.
 
@@ -196,9 +193,12 @@ the end.
        epochs=500,
        batch_size=32,
        lr=1e-2,
-       early_stopping="val_loss",
-       early_stopping_kwargs={"patience": 10, "restore_best_weights": True},
-       printer=None,
+       early_stopping={
+           "monitor": "val_loss",
+           "patience": 10,
+           "restore_best_weights": True,
+       },
+       verbose=False,
    )
    print(trained.epochs < 500)   # it stopped early
 
@@ -218,7 +218,7 @@ the end.
 
 
    trained = model.train(
-       train_data, epochs=500, batch_size=32, early_stopping=StopBelow(), printer=None
+       train_data, epochs=500, batch_size=32, early_stopping=StopBelow(), verbose=False
    )
 
 Step 6: freezing weights
@@ -334,5 +334,4 @@ See also
 :meth:`Modely.train <nnodely.Modely.train>`,
 :attr:`Modely.parameters <nnodely.Modely.parameters>`,
 :meth:`Modely.freeze <nnodely.Modely.freeze>`, :class:`~nnodely.Parameter`,
-:func:`~nnodely.set_seed`, :class:`~nnodely.TinyPrinter`,
-:class:`~nnodely.LegacyPrinter`, :class:`~nnodely.NNodelyPrinter`.
+:func:`~nnodely.set_seed`.

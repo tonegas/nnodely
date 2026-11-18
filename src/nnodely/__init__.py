@@ -262,7 +262,6 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 # Core
 from nnodely.core.modely import Modely
 from nnodely.core.dataloader import DataLoader
-from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
 
 # Layers
 from nnodely.layers.input import Input
@@ -355,9 +354,6 @@ __all__ = [
     "get_device",
     "Modely",
     "DataLoader",
-    "TinyPrinter",
-    "NNodelyPrinter",
-    "LegacyPrinter",
     "Input",
     "Output",
     "Fir",
@@ -441,6 +437,6 @@ __all__ = [
 ]
 
 # The splash, in a terminal or a notebook: NNODELY_SPLASH=0 turns it off.
-from nnodely.utils.splash import show_splash  # noqa: E402
+from nnodely.utils.splash import show_splash as _show_splash  # noqa: E402
 
-show_splash()
+_show_splash()

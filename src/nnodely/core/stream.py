@@ -8,31 +8,31 @@ from typing import Any, Sequence
 
 from nnodely.core.shape import Shape
 
-#: Every node class, by its module and name (:func:`class_path`): a model
+#: Every node class, by its module and name (:func:`_class_path`): a model
 #: saves the class of each node so, and is loaded with that class, not with
 #: another of the same name: a layer class of the user's named ``Sin``
 #: leaves nnodely's own in place.
-NODE_REGISTRY: dict[str, type["Node"]] = {}
+_NODE_REGISTRY: dict[str, type["Node"]] = {}
 
 
-def class_path(cls: type) -> str:
+def _class_path(cls: type) -> str:
     """``cls`` by its module and its name, as a model saves it."""
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-def registered_class(saved: str) -> type["Node"] | None:
+def _registered_class(saved: str) -> type["Node"] | None:
     """The node class a model was saved with: by its module and name; else
     by its name alone, as a model saved before classes were saved with their
     module, or one whose class has moved to another module, when exactly one
     class has that name. None if no class has it."""
-    if saved in NODE_REGISTRY:
-        return NODE_REGISTRY[saved]
+    if saved in _NODE_REGISTRY:
+        return _NODE_REGISTRY[saved]
     name = saved.rsplit(".", 1)[-1]
-    alike = [cls for cls in NODE_REGISTRY.values() if cls.__qualname__ == name]
+    alike = [cls for cls in _NODE_REGISTRY.values() if cls.__qualname__ == name]
     if len(alike) > 1:
         raise ValueError(
             f"The saved model holds a {saved!r} node, and {len(alike)} classes "
-            f"are named {name!r}: {sorted(class_path(cls) for cls in alike)}. "
+            f"are named {name!r}: {sorted(_class_path(cls) for cls in alike)}. "
             "Import the module that defines the one it was saved with, from "
             "where it was saved."
         )
@@ -43,15 +43,15 @@ def registered_class(saved: str) -> type["Node"] | None:
 #: the "_"-separated prefixes it is built from. Layers are told apart by the
 #: object they come from, but names are how a graph is read and searched, so a
 #: generated name avoids all of these.
-NODE_NAMES: set[str] = set()
+_NODE_NAMES: set[str] = set()
 
 
-def reserve_name(name: str) -> None:
+def _reserve_name(name: str) -> None:
     parts = name.split("_")
-    NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
+    _NODE_NAMES.update("_".join(parts[:index]) for index in range(1, len(parts) + 1))
 
 
-def object_repr(obj, **fields) -> str:
+def _object_repr(obj, **fields) -> str:
     """How every object of nnodely prints: ``Class(field=value, ...)`` on
     one line. An object it refers to (a stream, a layer, a model) prints
     by its name; reading the attribute gives the object."""
@@ -71,12 +71,12 @@ class Node:
         super().__init_subclass__(**kwargs)
 
         if not inspect.isabstract(cls):
-            NODE_REGISTRY[class_path(cls)] = cls
+            _NODE_REGISTRY[_class_path(cls)] = cls
 
     def __init__(self, name: str, preds: list[Node] | None = None) -> None:
         self.name = name
         self._preds = preds or []
-        reserve_name(name)
+        _reserve_name(name)
 
     def __call__(self, inputs: Sequence[Node]) -> Any:
         node = copy(self)
@@ -146,20 +146,6 @@ class Stream(Node):
     def seq(self) -> tuple[int | None, ...]:
         """The sequence axes, outermost first."""
         return self.shape.seq
-
-    @property
-    def dimensions(self):
-        """
-        Return the sequence, the window and the dim axes separately
-        """
-        return self.shape.dimensions
-
-    @property
-    def rank(self) -> int:
-        """
-        Rank without batch dimension.
-        """
-        return self.shape.rank
 
     def __add__(self, other):
         return _arithmetic().Add()([self, self._coerce_operand(other)])
@@ -251,5 +237,5 @@ class Stream(Node):
         from nnodely.layers.output import Output
 
         if type(self) in (Input, Output):
-            return object_repr(self, name=self.name, shape=self.shape)
+            return _object_repr(self, name=self.name, shape=self.shape)
         return f"Stream(name={self.name!r}, shape={self.shape})"

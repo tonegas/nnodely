@@ -363,7 +363,7 @@ def test_export_onnx_feedforward_blocks(tmp_path, model_factory, inputs):
     expected = model(inputs)
     model.export_onnx(tmp_path)
     path = tmp_path / f"{model.name}.onnx"
-    actual = Modely.validate_onnx(path, inputs, return_dict=True)
+    actual = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
     assert list(actual) == list(expected)
@@ -415,13 +415,13 @@ def test_export_onnx_fixes_the_batch_it_is_given(tmp_path):
     model.export_onnx(tmp_path, "three", batch_size=3)
 
     for name, inputs in (("one", one), ("three", three)):
-        actual = Modely.validate_onnx(tmp_path / f"{name}.onnx", inputs)[0]
+        actual = Modely.run_onnx(tmp_path / f"{name}.onnx", inputs)[0]
         expected = to_numpy(model(inputs)["onnx_batch_output"])
         np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
     with pytest.raises(Exception, match="dimensions"):
-        Modely.validate_onnx(tmp_path / "one.onnx", three)
+        Modely.run_onnx(tmp_path / "one.onnx", three)
     with pytest.raises(Exception, match="dimensions"):
-        Modely.validate_onnx(tmp_path / "three.onnx", one)
+        Modely.run_onnx(tmp_path / "three.onnx", one)
     with pytest.raises(ValueError, match="batch_size is a positive int"):
         model.export_onnx(tmp_path, "wrong", batch_size=0)
     with pytest.raises(ValueError, match="batch_size is a positive int"):
@@ -430,14 +430,34 @@ def test_export_onnx_fixes_the_batch_it_is_given(tmp_path):
         model.export_onnx(tmp_path, "wrong", seq=0)
 
 
-def test_validate_onnx_rejects_missing_input(tmp_path):
+def test_export_onnx_declares_the_opset_it_is_given(tmp_path):
+    # The default opset differs by exporter (15 for tf2onnx, 20 for torch, 23
+    # for jax2onnx): an older runtime needs a lower one.
+    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    model = _single_input_model("onnx_opset", lambda stream: Fir(features=2)(stream))
+    inputs = {name: value[:1] for name, value in _random_inputs(model).items()}
+
+    model.export_onnx(tmp_path, "opset", opset_version=17)
+
+    opsets = {
+        item.domain: item.version
+        for item in onnx.load(tmp_path / "opset.onnx").opset_import
+    }
+    assert opsets[""] == 17
+    actual = Modely.run_onnx(tmp_path / "opset.onnx", inputs)[0]
+    expected = to_numpy(model(inputs)["onnx_opset_output"])
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_run_onnx_rejects_missing_input(tmp_path):
     pytest.importorskip("onnxruntime")
     model = _single_input_model("onnx_missing", lambda stream: Identity()(stream))
     model.export_onnx(tmp_path, "missing")
     path = tmp_path / "missing.onnx"
 
     with pytest.raises(ValueError, match="Missing ONNX inputs"):
-        Modely.validate_onnx(path, {})
+        Modely.run_onnx(path, {})
 
 
 @pytest.mark.parametrize("mode", ["linear", "polynomial"])
@@ -1264,7 +1284,7 @@ def test_export_onnx_loop_model(tmp_path, model_factory):
     expected = model(inputs)
     model.export_onnx(tmp_path)
     path = tmp_path / f"{model.name}.onnx"
-    actual = Modely.validate_onnx(path, inputs, return_dict=True)
+    actual = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert path.is_file()
     assert list(actual) == list(expected)
@@ -1309,13 +1329,13 @@ def test_export_onnx_dynamic_loop_takes_the_length_it_is_given(tmp_path):
     for steps in (1, 7):
         model.export_onnx(tmp_path, f"dyn_onnx_{steps}", seq=steps)
         expected = to_numpy(model(inputs(steps))["dyn_onnx_out"])
-        actual = Modely.validate_onnx(
+        actual = Modely.run_onnx(
             tmp_path / f"dyn_onnx_{steps}.onnx", inputs(steps), return_dict=True
         )["dyn_onnx_out"]  # type: ignore
         assert expected.shape == (1, steps, 1, 1)
         np.testing.assert_allclose(to_numpy(actual), expected, rtol=1e-5, atol=1e-5)
     with pytest.raises(Exception, match="dimensions"):
-        Modely.validate_onnx(tmp_path / "dyn_onnx_7.onnx", inputs(3))
+        Modely.run_onnx(tmp_path / "dyn_onnx_7.onnx", inputs(3))
 
 
 def test_export_onnx_seq_ops_take_the_length_they_are_given(tmp_path):
@@ -1345,7 +1365,7 @@ def test_export_onnx_seq_ops_take_the_length_they_are_given(tmp_path):
             "dyn_seq_ops_x": np.arange(steps, dtype=np.float32).reshape(1, steps, 1, 1)
         }
         expected = model(inputs)
-        actual = Modely.validate_onnx(
+        actual = Modely.run_onnx(
             tmp_path / f"dyn_seq_ops_{steps}.onnx", inputs, return_dict=True
         )
         for name in expected:
@@ -1407,7 +1427,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
         epochs=5,
         batch_size=8,
         lr=1e-2,
-        printer=None,
+        verbose=False,
     )
     model.save(tmp_path / "pretrained")
 
@@ -1436,7 +1456,7 @@ def test_fine_tune_a_loaded_model_with_its_own_minimizers(tmp_path):
         epochs=5,
         batch_size=8,
         lr=1e-2,
-        printer=None,
+        verbose=False,
     )
     tuned = to_numpy(loaded(inputs)["fine_tune_out"])
     assert not np.allclose(tuned, pretrained)
@@ -1514,8 +1534,8 @@ def test_export_onnx_leaves_minimizers_out(tmp_path):
 
     model.export_onnx(tmp_path, "minimized")
     path = tmp_path / "minimized.onnx"
-    # validate_onnx feeds every input of the graph: the target is not one of them.
-    result = Modely.validate_onnx(path, inputs, return_dict=True)
+    # run_onnx feeds every input of the graph: the target is not one of them.
+    result = Modely.run_onnx(path, inputs, return_dict=True)
 
     assert list(result) == ["minimized_out"]
     np.testing.assert_allclose(
@@ -1536,8 +1556,8 @@ def _fir_model(name, gain):
     x = Input(f"{name}_x", tw=2)
     fir = Fir(features=1, bias=False)(x)  # left unnamed
     model = Modely(name, inputs=[x], outputs=[Output(f"{name}_out", fir)]).build()
-    assert fir.kernel is not None
-    fir.kernel.assign(np.full((2, 1), gain, dtype=np.float32))
+    assert fir.weights["kernel"].param is not None
+    fir.weights["kernel"].param.assign(np.full((2, 1), gain, dtype=np.float32))
     return model, fir
 
 
@@ -1552,8 +1572,8 @@ def test_a_loaded_layer_keeps_its_name_and_its_own_weights(tmp_path):
     loaded_fir = next(node for node in loaded._order if isinstance(node, Fir))
     # One name, two layers: a layer is told apart by the object it comes from.
     assert loaded_fir.name == ours.name
-    assert ours.kernel is not None
-    ours.kernel.assign(np.ones((2, 1), dtype=np.float32))
+    assert ours.weights["kernel"].param is not None
+    ours.weights["kernel"].param.assign(np.ones((2, 1), dtype=np.float32))
 
     x = model._inputs[0]
     both = Modely(
@@ -1575,8 +1595,10 @@ def test_a_reloaded_model_stays_apart_from_its_original(tmp_path):
     original, fir = _fir_model("reload", 1.0)
     original.save(tmp_path / "reload")
     copy = Modely.load(tmp_path / "reload")
-    assert fir.kernel is not None
-    fir.kernel.assign(np.full((2, 1), 2.0, dtype=np.float32))  # trained on
+    assert fir.weights["kernel"].param is not None
+    fir.weights["kernel"].param.assign(
+        np.full((2, 1), 2.0, dtype=np.float32)
+    )  # trained on
 
     z = Input("reload_z", tw=2)
     both = Modely(
@@ -1610,8 +1632,8 @@ def test_one_file_loaded_twice_gives_two_models(tmp_path):
     model.save(tmp_path / "twice")
     first, second = Modely.load(tmp_path / "twice"), Modely.load(tmp_path / "twice")
     second_fir = next(node for node in second._order if isinstance(node, Fir))
-    assert second_fir.kernel is not None
-    second_fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))
+    assert second_fir.weights["kernel"].param is not None
+    second_fir.weights["kernel"].param.assign(np.full((2, 1), 5.0, dtype=np.float32))
 
     np.testing.assert_allclose(
         to_numpy(first({"twice_x": _WINDOW_OF_ONES})["twice_out"]), [[[2.0]]]
@@ -1655,10 +1677,10 @@ def test_load_without_weights_initializes_the_saved_architecture(tmp_path):
     restored_fir = next(node for node in restored._order if isinstance(node, Fir))
 
     assert (tmp_path / "fresh" / "model.weights.h5").exists()
-    assert not np.allclose(to_numpy(restored_fir.kernel), 7.0)
+    assert not np.allclose(to_numpy(restored_fir.weights["kernel"].param), 7.0)
     reloaded = Modely.load(tmp_path / "fresh")
     reloaded_fir = next(node for node in reloaded._order if isinstance(node, Fir))
-    np.testing.assert_allclose(to_numpy(reloaded_fir.kernel), 7.0)
+    np.testing.assert_allclose(to_numpy(reloaded_fir.weights["kernel"].param), 7.0)
 
 
 def test_names_generated_after_a_load_avoid_the_loaded_ones(tmp_path):
@@ -1690,8 +1712,10 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     model = Modely(
         "architecture", inputs=[x], outputs=[Output("architecture_out", fir * gain)]
     ).build()
-    assert fir.kernel is not None and gain.param is not None
-    fir.kernel.assign(np.full((2, 1), 5.0, dtype=np.float32))  # as if trained
+    assert fir.weights["kernel"].param is not None and gain.param is not None
+    fir.weights["kernel"].param.assign(
+        np.full((2, 1), 5.0, dtype=np.float32)
+    )  # as if trained
     gain.param.assign([7.0])
 
     path = tmp_path / "architecture"
@@ -1707,7 +1731,7 @@ def test_a_model_saved_without_weights_loads_as_freshly_built(tmp_path):
     assert isinstance(restored_gain, Parameter) and isinstance(restored_fir, Fir)
     # As declared again: the parameter from its value, the Fir from a new draw.
     np.testing.assert_allclose(to_numpy(restored_gain.param), [2.0])
-    assert not np.allclose(to_numpy(restored_fir.kernel), 5.0)
+    assert not np.allclose(to_numpy(restored_fir.weights["kernel"].param), 5.0)
 
 
 def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
@@ -1726,8 +1750,12 @@ def test_a_linear_initializer_object_is_saved_as_its_config(tmp_path):
     restored = Modely.load(tmp_path / "initializer")
     restored_linear = next(node for node in restored._order if isinstance(node, Linear))
 
-    np.testing.assert_allclose(to_numpy(restored_linear.kernel), np.full((1, 2), 0.5))
-    np.testing.assert_allclose(to_numpy(restored_linear.bias), [-1.0, -1.0])
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["kernel"].param), np.full((1, 2), 0.5)
+    )
+    np.testing.assert_allclose(
+        to_numpy(restored_linear.weights["bias"].param), [-1.0, -1.0]
+    )
 
 
 class _ScaledImpl(keras.layers.Layer):
@@ -2046,7 +2074,7 @@ def test_fir_and_linear_computing_with_parameters_export_to_onnx(tmp_path):
     expected = to_numpy(model(_WEIGHTS_INPUTS)["weights_out"])
 
     model.export_onnx(tmp_path, "weights")
-    result = Modely.validate_onnx(
+    result = Modely.run_onnx(
         tmp_path / "weights.onnx", _WEIGHTS_INPUTS, return_dict=True
     )
 
@@ -2132,9 +2160,7 @@ def test_generalized_fuzzify_exports_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "general_fuzzy")
-    result = Modely.validate_onnx(
-        tmp_path / "general_fuzzy.onnx", data, return_dict=True
-    )
+    result = Modely.run_onnx(tmp_path / "general_fuzzy.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _GENERAL_OUTPUTS:
@@ -2256,7 +2282,7 @@ def test_moving_fuzzify_centers_export_to_onnx(tmp_path):
     before = model(data)
 
     model.export_onnx(tmp_path, "moving")
-    result = Modely.validate_onnx(tmp_path / "moving.onnx", data, return_dict=True)
+    result = Modely.run_onnx(tmp_path / "moving.onnx", data, return_dict=True)
 
     assert isinstance(result, dict)
     for name in _MOVING_OUTPUTS:
@@ -2281,7 +2307,7 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
     ).build()
 
     model.export_onnx(tmp_path, "same_shape")
-    result = Modely.validate_onnx(
+    result = Modely.run_onnx(
         tmp_path / "same_shape.onnx",
         {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
         return_dict=True,
@@ -2292,7 +2318,7 @@ def test_onnx_outputs_of_one_shape_keep_their_names(tmp_path):
         np.testing.assert_allclose(to_numpy(result[name]).ravel(), [index + 1.0])
 
     # Listed as model.outputs lists them: the exporters sort them by name.
-    listed = Modely.validate_onnx(
+    listed = Modely.run_onnx(
         tmp_path / "same_shape.onnx",
         {"same_shape_x": np.ones((1, 1, 1), dtype=np.float32)},
     )
@@ -3012,9 +3038,7 @@ def test_every_block_family_exports_to_onnx_on_this_backend(tmp_path, build, req
         ).astype(np.float32)
         for tensor in model._keras_inference_model.inputs
     }
-    actual = Modely.validate_onnx(
-        tmp_path / f"{model.name}.onnx", data, return_dict=True
-    )
+    actual = Modely.run_onnx(tmp_path / f"{model.name}.onnx", data, return_dict=True)
     expected = model(data)
     assert list(actual) == list(expected)
     for name in expected:
