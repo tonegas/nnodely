@@ -261,7 +261,7 @@ class BatchNorm(Layer):
     >>> w = Input("w", tw=2)
     >>> target = Input("target", tw=2)
     >>> y = BatchNorm(momentum=0.0, epsilon=0.0)(w)
-    >>> model = Modely("stats", inputs=[w, target], outputs=[Output("y", y)])
+    >>> model = Modely("stats", inputs=[w], outputs=[Output("y", y)])
     >>> model = model.minimize("fit", y, target).build()
     >>> sample = np.array([[[1.0], [3.0]]])
     >>> keras.ops.convert_to_numpy(model({"w": sample})["y"])  # mean 0, variance 1

@@ -107,7 +107,7 @@ def _minimized_model(name):
     target = Input(f"{name}_target", dim=1, tw=1)
     hidden = Linear(features=1, name=f"{name}_hidden")(TimeSelect(-1)(x))
     prediction = Output(f"{name}_pred", Fir(features=1, name=f"{name}_fir")(x) + hidden)
-    model = Modely(name, inputs=[x, target], outputs=[prediction])
+    model = Modely(name, inputs=[x], outputs=[prediction])
     model.minimize(f"{name}_fit", source=prediction, target=target)
     model.minimize(f"{name}_small", source=hidden, target=0.0)
     return model.build()
@@ -247,20 +247,21 @@ def test_inference_takes_its_arrays_as_a_block_takes_its_streams():
     target = np.ones((4, 1, 1), dtype=np.float32)
     expected = to_numpy(model({"keyed_inference_x": windows})["keyed_inference_pred"])
 
-    # Keyed by Input or by name, or listed in the order of the inputs (the
-    # target too, which the outputs do not read): the same run.
+    # Keyed by Input or by name, listed in the order of the inputs, or the
+    # array alone of its one input: the same run.
     for given in (
         {x: windows},
         {x: windows, "keyed_inference_unknown": target},
-        [windows, target],
-        (windows, target),
+        [windows],
+        (windows,),
+        windows,
     ):
         np.testing.assert_allclose(
             to_numpy(model(given)["keyed_inference_pred"]), expected
         )
 
-    with pytest.raises(ValueError, match="2 inputs"):
-        model([windows])
+    with pytest.raises(ValueError, match="takes one value for each"):
+        model([windows, target])
     with pytest.raises(ValueError, match="two values for its input"):
         model({x: windows, "keyed_inference_x": windows})
     with pytest.raises(TypeError, match="streams and arrays together"):

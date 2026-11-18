@@ -345,7 +345,7 @@ class Gradient(Layer):
     built:
 
     >>> z = Input("z")
-    >>> Modely("unrelated", inputs=[x, z], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
+    >>> Modely("unrelated", inputs=[x], outputs=[Output("g", Gradient(wrt=z)(x * x))]).build()
     Traceback (most recent call last):
         ...
     ValueError: ...the differentiated relation does not depend on input 'z' (it reads ['x'])...

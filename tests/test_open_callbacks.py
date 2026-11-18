@@ -309,8 +309,8 @@ def test_a_modely_starts_integrate_derivative_and_buffer_from_their_init(tmp_pat
     assert sorted(node.name for node in model._inference_inputs) == names
     # The table lists their states too: hidden, read as their init.
     rows = model.inputs._rows
-    assert sorted(row["input"].name for row in rows if row["data"]) == names
-    hidden = [row for row in rows if not row["data"]]
+    assert sorted(row["input"].name for row in rows if row["flags"] != "hidden") == names
+    hidden = [row for row in rows if row["flags"] == "hidden"]
     assert len(hidden) == 12 and all(row["input"]._hidden for row in hidden)
 
     data = {
@@ -396,13 +396,14 @@ def test_a_call_gives_a_declared_fed_back_input_its_data():
             inputs=[start, source],
             outputs=[Output("oc_decl_expr_out", tank([start * 2.0, source]))],
         ).loop()
-    # Listed too, the level would start from its data as well.
-    with pytest.raises(ValueError, match="'oc_decl_level' has an initial value"):
+    # Listed too, it is refused: the call gives it its stream, so the outputs
+    # do not read it.
+    with pytest.raises(ValueError, match=r"declares the Inputs \['oc_decl_level'\]"):
         Modely(
             "oc_decl_both",
             inputs=[start, source, level],
             outputs=[Output("oc_decl_both_out", tank([start, source]))],
-        ).loop()
+        )
 
 
 def test_a_modely_reads_a_declared_state_from_data_and_a_hidden_one_as_its_init():
@@ -445,6 +446,29 @@ def test_a_modely_reads_a_declared_state_from_data_and_a_hidden_one_as_its_init(
     np.testing.assert_allclose(to_numpy(result["oc_open_remembered"]).ravel(), [5, 5])
 
 
+def test_a_modely_refuses_a_declared_input_its_outputs_do_not_read():
+    x = Input("oc_unread_x", tw=1)
+    y = Output("oc_unread_y", 2.0 * x)
+    # A target is read by an objective only, and is not declared.
+    target = Input("oc_unread_target", tw=1)
+    with pytest.raises(
+        ValueError, match=r"declares the Inputs \['oc_unread_target'\] among its"
+    ):
+        Modely("oc_unread_target_model", inputs=[x, target], outputs=[y])
+    unused = Input("oc_unread_unused", tw=1)
+    with pytest.raises(ValueError, match=r"\['oc_unread_unused'\]"):
+        Modely("oc_unread_unused_model", inputs=[x, unused], outputs=[y])
+
+    # Read only through the stream a state is fed back with, it is read by
+    # the rollout: an input of a state-space model, y = c s, s' = a s + b u.
+    u = Input("oc_unread_u", tw=1)
+    s = Input("oc_unread_s", tw=1)
+    s.feedback(s * 0.5 + u)
+    model = Modely("oc_unread_ss", inputs=[u, s], outputs=[Output("oc_unread_o", s)])
+    rows = {row["input"].name: row["flags"] for row in model.loop().inputs._rows}
+    assert rows == {"oc_unread_s": "optional", "oc_unread_u": "required"}
+
+
 def test_inputs_tells_how_each_input_is_fed():
     rate = Input("oc_tab_rate", tw=1)
     level = Input("oc_tab_level", tw=1)
@@ -457,16 +481,15 @@ def test_inputs_tells_how_each_input_is_fed():
     rows = {row["input"].name: row for row in tank.inputs._rows}
     assert [node.name for node in tank.inputs] == list(rows)
     assert rows.keys() == {"oc_tab_level", "oc_tab_rate", "oc_tab_target"}
-    assert rows["oc_tab_level"]["declared"] is True
     assert rows["oc_tab_level"]["update"] == (
         f"<- {level_next.name}, oc_tab_level₀ = 'oc_tab_level'"
     )
-    assert rows["oc_tab_level"]["data"] == "required"  # a Modely reads it from data
+    assert rows["oc_tab_level"]["flags"] == "required"  # a Modely reads it from data
     assert (
-        rows["oc_tab_rate"]["declared"]
+        rows["oc_tab_rate"]["flags"] == "required"
         and rows["oc_tab_rate"]["update"] == "<- 'oc_tab_rate'"
     )
-    assert rows["oc_tab_target"]["data"] == "target"
+    assert rows["oc_tab_target"]["flags"] == "target"
 
     # A hidden state of the one-step model reads its init, at every step.
     memory = Input("oc_tab_memory", tw=1)
@@ -475,7 +498,7 @@ def test_inputs_tells_how_each_input_is_fed():
         "oc_tab_plain", inputs=[rate], outputs=[Output("oc_tab_m", memory_next)]
     )
     row = plain.inputs._rows[-1]
-    assert row["input"] is memory and not row["declared"] and row["data"] is None
+    assert row["input"] is memory and row["flags"] == "hidden"
     assert row["update"] == f"<- {memory_next.name}, {memory.name}₀ = 2.0"
 
     # In a model.loop() rollout: declared, the level starts from its data; the state of
@@ -490,15 +513,13 @@ def test_inputs_tells_how_each_input_is_fed():
         ],
     ).loop()
     rows = {row["input"].name: row for row in loop.inputs._rows}
-    assert (
-        rows["oc_tab_level"]["declared"] and rows["oc_tab_level"]["data"] == "optional"
-    )
+    assert rows["oc_tab_level"]["flags"] == "optional"
     assert rows["oc_tab_level"]["update"] == (
         f"<- {level_next.name}, oc_tab_level₀ = 'oc_tab_level' or 0"
     )
-    assert rows["oc_tab_rate"]["data"] == "required"
+    assert rows["oc_tab_rate"]["flags"] == "required"
     (state,) = [row for name, row in rows.items() if name.endswith("_oc_tab_rate")]
-    assert state["data"] is None
+    assert state["flags"] == "hidden"
     assert state["update"].endswith("₀ = 'oc_tab_x0'")
     # The table alone: the header, named after what it lists, and a row per
     # Input.
@@ -567,10 +588,8 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
             (
                 row["input"].name,
                 row["seq"],
-                row["declared"],
-                row["update"],
-                row["data"],
                 row["flags"],
+                row["update"],
             )
             for row in model.inputs._rows
         ]
@@ -601,22 +620,13 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
         outputs=[Output("oc_same_traj", traj)],
     )
     assert rows(shortcut) == [
-        (
-            "oc_same_y0",
-            (None,),
-            True,
-            "oc_same_y0₀ = 'oc_same_y0'",
-            "required",
-            None,
-        ),
-        ("oc_same_u", (None,), True, "<- 'oc_same_u'", "required", None),
+        ("oc_same_y0", (None,), "required", "oc_same_y0₀ = 'oc_same_y0'"),
+        ("oc_same_u", (None,), "required", "<- 'oc_same_u'"),
         (
             "oc_same_int_oc_same_u",
             (),
-            False,
-            "<- oc_same_int, oc_same_int_oc_same_u₀ = 'oc_same_y0'",
-            None,
             "hidden",
+            "<- oc_same_int, oc_same_int_oc_same_u₀ = 'oc_same_y0'",
         ),
     ]
     assert rows(manual) == rows(shortcut)
@@ -630,10 +640,8 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
     assert rows(shortcut)[0] == (
         "oc_same_x",
         (None,),
-        True,
+        "optional",
         f"<- {x_next.name}, oc_same_x₀ = 'oc_same_x' or 0",
-        "optional",
-        "optional",
     )
     step = Modely(
         "oc_same_x_step", inputs=[u, x], outputs=[Output("oc_same_x_next", x_next)]
@@ -647,10 +655,8 @@ def test_inputs_of_a_loop_are_those_of_its_model_loop():
     assert rows(manual)[-1] == (
         "oc_same_x",
         (),
-        False,
+        "hidden",
         f"<- {x_next.name}, oc_same_x₀ = 'oc_same_x0'",
-        None,
-        None,
     )
 
 

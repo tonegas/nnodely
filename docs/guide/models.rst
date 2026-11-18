@@ -190,6 +190,9 @@ out:
 - an Input read only by an objective, such as a target (see
   :doc:`training`).
 
+An Input declared but not read by the outputs, in one step or through the
+streams the model feeds back, is refused too.
+
 Declare objectives and feedback **before** ``build()``, because they add to
 the graph. Building again keeps the weights the model holds, for example
 after a new objective. ``build(keep_weights=False)`` gives every weight its
@@ -231,7 +234,7 @@ Other forms of the call:
   targets, are ignored.
 
 The call needs every input the outputs read: ``print(vehicle.inputs)``
-lists them, all but those its ``flags`` column marks ``target``.
+marks them ``required`` in its ``flags`` column.
 
 .. warning::
 
@@ -338,6 +341,9 @@ Common errors
    * - ``Model 'm' reads the Inputs ['x'], which are not among its inputs``
      - An Input the outputs read is not declared.
      - Add it to ``inputs=[...]``.
+   * - ``Model 'm' declares the Inputs ['x'] among its inputs, which its outputs do not read``
+     - A declared Input no output reads, such as a target.
+     - Remove it from ``inputs=[...]``: a target is found from the objective.
    * - ``expected shape=(None, 1, 1), found shape=(1, 3)``
      - An array without the shape the input declares.
      - Give every array the shape ``(batch, *seq, tw, *dim)`` of its input.

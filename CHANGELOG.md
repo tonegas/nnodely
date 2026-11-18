@@ -168,11 +168,11 @@ a row of a printed table has the fields of the object it stands for.
 - **`Modely.inputs`**: every Input a model reads (those it declares, those
   only an objective reads, its hidden states, inside the models it calls
   too) and every state of the Loops it rolls out. It prints as a table of
-  their shapes, their flags (`target` for training only, `optional`,
-  `hidden`) and how each is fed: `<- v`, what it reads at every step, and
-  `x₀ = v`, what it starts from, with `'name'` for the data of an Input.
-  A state shows both, the stream it is fed back with and its initial
-  value. A rollout of `model.loop()`
+  their shapes, their flags (`required` or `optional` for a declared input,
+  `target` for training only, `hidden` for the model's own memory) and how
+  each is fed: `<- v`, what it reads at every step, and `x₀ = v`, what it
+  starts from, with `'name'` for the data of an Input. A state shows both,
+  the stream it is fed back with and its initial value. A rollout of `model.loop()`
   prints the rows of the Loop it is a shortcut for, its Inputs with the
   horizon.
 - **`Modely.outputs`**: the outputs a model is declared with, in that order,

@@ -579,7 +579,7 @@ def _samples_model():
     window = x
     pred = Output("samples_pred", TimeSelect(-1)(x) * Parameter(value=[2.0]))
     model = Modely(
-        "samples_model", inputs=[x, y], outputs=[pred, Output("samples_window", window)]
+        "samples_model", inputs=[x], outputs=[pred, Output("samples_window", window)]
     )
     model.minimize("error", pred, y)
     return model.build()
@@ -780,7 +780,7 @@ def test_windowed_data_round_trips_what_the_loader_builds():
     s = Input("trip_s", seq=3, tw=2)
     model = Modely(
         "trip_model",
-        inputs=[x, y, s],
+        inputs=[x, y],
         outputs=[Output("trip_out", TimeSelect(-1)(x) + TimeSelect(-1)(y))],
     )
     model.minimize("trip", SeqSelect(-1)([TimeSelect(-1)(s)]), TimeSelect(-1)(y))

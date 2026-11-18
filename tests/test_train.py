@@ -1105,7 +1105,7 @@ def test_train_with_loop_under_xla(monkeypatch):
     body = Modely("body", inputs=[state], outputs=[output]).build()
     loop = Loop(f=body, feedback={state: output}, name="loop", init={state: x})()
     out_loop = Output("out_loop", loop)
-    model = Modely("model", inputs=[x, target], outputs=[out_loop])
+    model = Modely("model", inputs=[x], outputs=[out_loop])
     model.minimize("error", source=out_loop, target=target, loss="mse")
     model.build()
 

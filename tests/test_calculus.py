@@ -350,9 +350,13 @@ def test_a_gradient_against_an_input_of_a_block_bound_by_a_call_raises():
         "gb_block", inputs=[x, y], outputs=[Output("gb_d", Gradient(wrt=x)(x * y))]
     )
     z, w = Input("gb_z", tw=1), Input("gb_w", tw=1)
-    for name, streams in (("gb_zw", [z, w]), ("gb_zz", [z, z]), ("gb_e", [z + 1.0, w])):
+    for name, streams, inputs in (
+        ("gb_zw", [z, w], [z, w]),
+        ("gb_zz", [z, z], [z]),
+        ("gb_e", [z + 1.0, w], [z, w]),
+    ):
         model = Modely(
-            name, inputs=[z, w], outputs=[Output(f"{name}_o", block(streams))]
+            name, inputs=inputs, outputs=[Output(f"{name}_o", block(streams))]
         )
         with pytest.raises(ValueError, match="does not depend on input 'gb_x'"):
             model.build()
@@ -366,7 +370,7 @@ def test_derivative_wrt_input_the_relation_does_not_read_raises():
     with pytest.raises(ValueError, match="does not depend on input"):
         Modely(
             "derivative_unrelated_model",
-            inputs=[x, y],
+            inputs=[x],
             outputs=[Output("dy", Gradient(order=1, wrt=y)(fun))],
         ).build()
 
@@ -1624,9 +1628,7 @@ def test_train_a_rate_through_an_integrated_trajectory():
     rate = Linear(features=1, bias=False)([u])
     trajectory = Output("trajectory", IntegrateStep(method="euler", dt=dt)(v0, rate))
 
-    model = Modely(
-        "integrate_train_model", inputs=[u, v0, target], outputs=[trajectory]
-    )
+    model = Modely("integrate_train_model", inputs=[u, v0], outputs=[trajectory])
     model.minimize("trajectory_error", source=trajectory, target=target)
     model.build()
 
@@ -1810,7 +1812,7 @@ def test_integrate_derivative_and_buffer_take_their_signal_and_init_alike():
     hidden = {
         row["input"].name: row["input"].seq
         for row in model.inputs._rows
-        if not row["declared"]
+        if row["flags"] == "hidden"
     }
     assert hidden == {
         "alike_int_alike_s": (3,),

@@ -622,8 +622,9 @@ class Inputs(Table):
     It is a list of the Input objects. Pick one by its name,
     ``inputs["x"]``, or by its index, ``inputs[0]``: the ``idx`` column of
     the table. Printed, it is a table of their shapes and of how each is
-    fed: where its value comes from and, fed back, the stream it reads at
-    the next step and what it starts from."""
+    fed: its flags (``required``, ``optional``, ``target`` or ``hidden``),
+    where its value comes from and, fed back, the stream it reads at the
+    next step and what it starts from."""
 
     _HEADER = ("input", "seq", "tw", "dim", "flags", "update")
 
@@ -634,7 +635,7 @@ class Inputs(Table):
         self._rows = rows
 
     def _where(self, index, item) -> str:
-        return "(declared)" if self._rows[index]["declared"] else "(not declared)"
+        return f"({self._rows[index]['flags']})"
 
     def __str__(self):
         cells = [
@@ -643,7 +644,7 @@ class Inputs(Table):
                 _seq_cell(row["seq"]),
                 _tw_cell(row["input"]),
                 str(tuple(row["input"].dim)),
-                row["flags"] or "-",
+                row["flags"],
                 row["update"],
             )
             for row in self._rows
