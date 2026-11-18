@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Any
 
 from nnodely import (
@@ -1138,6 +1139,10 @@ def test_train_with_loop_under_xla():
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    keras.backend.backend() == "torch" and sys.platform == "win32",
+    reason="torch.compile needs a C++ compiler (cl.exe) on PATH on Windows",
+)
 def test_train_compiled_or_not_gives_the_same_losses():
     x, y = Input("jit_x", tw=1), Input("jit_y", tw=1)
     out = Output("jit_out", Linear(features=1, kernel="ones", bias=False)(x))
