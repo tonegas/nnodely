@@ -79,7 +79,8 @@ set_seed(42)
 
 x = Input("x", tw=2)  # a window of two samples: [x[t-1], x[t]]
 prev, cur = TimeSelect(0)(x), TimeSelect(1)(x)
-out = Output("out", Parameter("A") * prev + Parameter("B") * cur)
+# The next value, fed back into the window of x when the model runs closed loop
+out = Output("out", x.feedback(Parameter("A") * prev + Parameter("B") * cur))
 
 model = Modely("Fibonacci", inputs=[x], outputs=[out])
 model.minimize("target", out, prev + cur)  # the next value is the sum of the last two
@@ -88,14 +89,12 @@ model.build()
 data = DataLoader(model, source={"x": np.random.uniform(-1.0, 1.0, 200)})
 model.train(data, epochs=50, batch_size=32, lr=0.05)  # learns A = B = 1
 
-# Run it closed loop for 10 steps: each prediction is fed back into the window
-# of x, which starts from the window of the input "start"
-start = Input("start", tw=2)
-loop = Loop(f=model, feedback={x: out}, init={x: start}, seq=10)()
-generator = Modely("FibonacciGenerator", inputs=[start], outputs=[Output("fib", loop)]).build()
-
-result = generator({"start": np.array([[[0.0], [1.0]]])})  # (batch, tw, dim)
-print(keras.ops.convert_to_numpy(result["fib"]).ravel())  # 1, 2, 3, 5, 8, ..., 89
+# Run it closed loop: each step feeds its value back into the window of x
+generator = model.loop().build()
+steps = np.zeros((1, 10, 2, 1))  # 10 steps of x: (batch, steps, tw, dim)
+steps[:, 0] = [[0.0], [1.0]]  # x starts from [0, 1]: only its first step is read
+result = generator({"x": steps})
+print(keras.ops.convert_to_numpy(result["out"]).ravel())  # 1, 2, 3, 5, 8, ..., 89
 
 generator.save("fibonacci_model")  # save the nnodely model
 ```
