@@ -2603,6 +2603,42 @@ def test_a_parameter_declared_by_its_sizes_round_trips(tmp_path):
     )
 
 
+def test_options_given_as_members_save_as_their_strings(tmp_path):
+    # Every option enum is a StrEnum: a model declared with its members saves
+    # the strings a model declared with the strings saves, and loads back.
+    x, g = nn.Input("opt_x", tw=4), nn.Input("opt_g", tw=1)
+    integral = nn.IntegrateStep(method=nn.IntegrationMethod.TRAPEZOIDAL, dt=0.1)(x)
+    curve = nn.Interpolation(
+        [0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=nn.InterpolationMode.POLYNOMIAL
+    )(g)
+    sets = nn.Fuzzify([0.0, 1.0], function=nn.MembershipName.GAUSSIAN)(g)
+    model = nn.Modely(
+        "options",
+        inputs=[x, g],
+        outputs=[
+            nn.Output("opt_integral", integral),
+            nn.Output("opt_curve", curve),
+            nn.Output("opt_sets", sets),
+        ],
+    ).build()
+    model.save(tmp_path / "options")
+    saved = (tmp_path / "options" / "model.json").read_text()
+    assert '"method": "trapezoidal"' in saved
+    assert '"mode": "polynomial"' in saved
+    for enum in ("IntegrationMethod", "InterpolationMode", "MembershipName"):
+        assert enum not in saved
+
+    data = {
+        "opt_x": np.arange(4.0, dtype=np.float32).reshape(1, 4, 1),
+        "opt_g": np.array([[[1.5]]], dtype=np.float32),
+    }
+    loaded = Modely.load(tmp_path / "options")
+    _assert_same_outputs(
+        {k: to_numpy(v) for k, v in loaded(data).items()},
+        {k: to_numpy(v) for k, v in model(data).items()},
+    )
+
+
 # -----------------------------------------------------------------------------
 # ONNX coverage: one model per block family, exported on the current backend
 # -----------------------------------------------------------------------------

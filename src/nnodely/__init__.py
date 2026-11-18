@@ -261,8 +261,13 @@ from nnodely.utils.random import get_seed, set_seed  # noqa: E402
 
 # Core
 from nnodely.core.modely import Modely
-from nnodely.core.dataloader import DataLoader
-from nnodely.utils.printers import TinyPrinter, LegacyPrinter, NNodelyPrinter
+from nnodely.core.dataloader import DataLoader, OnShort
+from nnodely.utils.printers import (
+    LegacyPrinter,
+    NNodelyPrinter,
+    PrinterName,
+    TinyPrinter,
+)
 
 # Layers
 from nnodely.layers.input import Input
@@ -274,10 +279,22 @@ from nnodely.layers.loop import Loop
 from nnodely.layers.buffer import Buffer
 from nnodely.layers.localmodel import LocalModel
 from nnodely.layers.function import KerasFunction
-from nnodely.layers.fuzzify import Fuzzify, Gaussian, Rectangular, Triangular
-from nnodely.layers.interpolation import Interpolation
-from nnodely.layers.equationlearner import EquationLearner
-from nnodely.layers.calculus import Derivative, DerivativeStep, Integrate, IntegrateStep
+from nnodely.layers.fuzzify import (
+    Fuzzify,
+    Gaussian,
+    MembershipName,
+    Rectangular,
+    Triangular,
+)
+from nnodely.layers.interpolation import Interpolation, InterpolationMode
+from nnodely.layers.equationlearner import EquationFunction, EquationLearner
+from nnodely.layers.calculus import (
+    Derivative,
+    DerivativeStep,
+    Integrate,
+    IntegrateStep,
+    IntegrationMethod,
+)
 from nnodely.layers.gradient import Gradient
 from nnodely.layers.partitions import (
     Concatenate,
@@ -294,7 +311,7 @@ from nnodely.layers.partitions import (
     TimeSelect,
 )
 from nnodely.layers.batchnorm import BatchNorm
-from nnodely.layers.ode import Ode
+from nnodely.layers.ode import Ode, OdeMethod
 from nnodely.layers.activations import (
     ELU,
     GELU,
@@ -355,7 +372,9 @@ __all__ = [
     "get_device",
     "Modely",
     "DataLoader",
+    "OnShort",
     "TinyPrinter",
+    "PrinterName",
     "NNodelyPrinter",
     "LegacyPrinter",
     "Input",
@@ -368,17 +387,21 @@ __all__ = [
     "Buffer",
     "LocalModel",
     "Fuzzify",
+    "MembershipName",
     "KerasFunction",
     "Triangular",
     "Rectangular",
     "Gaussian",
     "Interpolation",
+    "InterpolationMode",
     "EquationLearner",
+    "EquationFunction",
     "Derivative",
     "DerivativeStep",
     "Gradient",
     "Integrate",
     "IntegrateStep",
+    "IntegrationMethod",
     "Concatenate",
     "TimeConcatenate",
     "TimeSelect",
@@ -393,6 +416,7 @@ __all__ = [
     "Range",
     "BatchNorm",
     "Ode",
+    "OdeMethod",
     "ReLU",
     "LeakyReLU",
     "ELU",

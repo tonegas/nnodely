@@ -430,6 +430,16 @@ a row of a printed table has the fields of the object it stands for.
   the terms. A test runs every example of the reference pages, every guide
   page and the README, and checks what they print.
 
+- **Options with a fixed set of names are `StrEnum`s**, each in the module
+  that uses it and exported by `nnodely`: `IntegrationMethod`
+  (`IntegrateStep`, `Integrate`), `OdeMethod` (`Ode`), `InterpolationMode`
+  (`Interpolation`), `MembershipName` (`Fuzzify`), `EquationFunction`
+  (`EquationLearner`), `PrinterName` (`train(printer=)`) and `OnShort`
+  (`DataLoader(on_short=)`). A member is its string:
+  `method=IntegrationMethod.TRAPEZOIDAL` and `method="trapezoidal"` are the
+  same, and a model saves the string. An unknown name raises where it is
+  given, `on_short` included. `seq` keeps `-1` and `"dyn"`.
+
 ### Changed
 
 - **The backend is chosen at the import**: `KERAS_BACKEND`, else the

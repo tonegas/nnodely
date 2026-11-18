@@ -21,6 +21,8 @@ Input is :class:`~nnodely.layers.gradient.Gradient`.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import keras
 import numpy as np
 
@@ -38,21 +40,59 @@ from nnodely.layers.input import (
 # ======================================================================
 # Integration
 # ======================================================================
-#: Quadrature rules, by the name the model writes. "euler" is the same
-#: rectangular rule under the name it has when the window is one sample and
-#: the layer is one step of a recurrence, as in ``Ode``.
+class IntegrationMethod(StrEnum):
+    """The integration rule of :class:`IntegrateStep` and :class:`Integrate`.
+
+    A member is also the string of its value: ``IntegrationMethod.TRAPEZOIDAL``
+    and ``"trapezoidal"`` are the same ``method``.
+
+    Attributes
+    ----------
+    EULER
+        ``"euler"``: the rectangular rule, ``y[i] = y[i-1] + dt * r[i]``,
+        under the name it has as one step of a recurrence, as in :func:`Ode`.
+    RECTANGULAR
+        ``"rectangular"``: the same rule as ``EULER``.
+    TRAPEZOIDAL
+        ``"trapezoidal"``: the trapezoidal rule,
+        ``y[i] = y[i-1] + dt / 2 * (r[i-1] + r[i])``.
+
+    See Also
+    --------
+    IntegrateStep : The running integral of a window.
+    Integrate : The integral one step at a time.
+    OdeMethod : The methods of :func:`Ode`.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import IntegrateStep, IntegrationMethod
+    >>> IntegrationMethod.TRAPEZOIDAL == "trapezoidal"
+    True
+    >>> [method.value for method in IntegrationMethod]
+    ['euler', 'rectangular', 'trapezoidal']
+    >>> trapezoid = IntegrateStep(method=IntegrationMethod.TRAPEZOIDAL, dt=0.1)
+
+    .. versionadded:: 2.0
+    """
+
+    EULER = "euler"
+    RECTANGULAR = "rectangular"
+    TRAPEZOIDAL = "trapezoidal"
+
+
+#: The quadrature rule of each method: "euler" is the rectangular rule.
 _METHOD_RULE = {
-    "euler": "rectangular",
-    "rectangular": "rectangular",
-    "trapezoidal": "trapezoidal",
+    IntegrationMethod.EULER: IntegrationMethod.RECTANGULAR,
+    IntegrationMethod.RECTANGULAR: IntegrationMethod.RECTANGULAR,
+    IntegrationMethod.TRAPEZOIDAL: IntegrationMethod.TRAPEZOIDAL,
 }
 
 #: What a layer of each rule is called on before the rate: the value of the
 #: integral before the window, and the rate before it, which the trapezoid
 #: averages with the first one.
 _HISTORY = {
-    "rectangular": ("init",),
-    "trapezoidal": ("init", "init_rate"),
+    IntegrationMethod.RECTANGULAR: ("init",),
+    IntegrationMethod.TRAPEZOIDAL: ("init", "init_rate"),
 }
 
 
@@ -65,17 +105,20 @@ def _validate_dt(dt, owner: str = "IntegrateStep") -> float:
     return float(dt)
 
 
-def _validate_method(method, owner: str) -> str:
+def _validate_method(method, owner: str) -> IntegrationMethod:
+    """``method``, a member or its string, as the member."""
     if isinstance(method, Stream):
         raise TypeError(
             f"{owner} is configured first and called on the rate, like every "
             f"other layer: {owner}(method=..., dt=...)(rate)."
         )
-    if method not in _METHOD_RULE:
+    try:
+        return IntegrationMethod(method)
+    except ValueError:
+        names = sorted(member.value for member in IntegrationMethod)
         raise ValueError(
-            f"{owner}: method must be one of {sorted(_METHOD_RULE)}, got {method!r}."
-        )
-    return method
+            f"{owner}: method must be one of {names}, got {method!r}."
+        ) from None
 
 
 def _history_and_signal(owner: str, inputs, history: tuple[str, ...]) -> list:
@@ -117,7 +160,7 @@ def _quadrature_matrix(rule: str, window_length: int, dt: float) -> np.ndarray:
     """
     increments = np.zeros((window_length, window_length), dtype=np.float64)
     for interval in range(window_length):
-        if rule == "trapezoidal":
+        if rule == IntegrationMethod.TRAPEZOIDAL:
             increments[interval, interval] += dt / 2.0
             if interval > 0:
                 increments[interval, interval - 1] += dt / 2.0
@@ -218,8 +261,9 @@ class IntegrateStep(Layer):
 
     Parameters
     ----------
-    method : str, default "euler"
-        The integration rule:
+    method : IntegrationMethod or str, default IntegrationMethod.EULER
+        The integration rule, a member of :class:`IntegrationMethod` or its
+        string:
 
         * ``"euler"``: the rectangle of each sample, its rate times ``dt``.
         * ``"rectangular"``: the same rule as ``"euler"``.
@@ -427,13 +471,13 @@ class IntegrateStep(Layer):
 
     def __init__(
         self,
-        method: str = "euler",
+        method: IntegrationMethod | str = IntegrationMethod.EULER,
         dt: float = 1.0,
         name: str | None = None,
     ):
         self._method = _validate_method(method, "IntegrateStep")
         self._dt = _validate_dt(dt)
-        super().__init__(name=name, method=self._method, dt=self._dt)
+        super().__init__(name=name, method=self._method.value, dt=self._dt)
 
     # ------------------------------------------------------------------
     # Symbolic graph logic
@@ -468,7 +512,7 @@ class IntegrateStep(Layer):
     def build_layer(self):
         return IntegrateImpl(
             dt=self._dt,
-            rule=_METHOD_RULE[self._method],
+            rule=_METHOD_RULE[self._method].value,
             axis=self.shape.tw_axis,
             name=self.name,
         )
@@ -515,8 +559,9 @@ class Integrate:
     ----------
     dt : float, default 1.0
         The time between two steps, a positive number.
-    method : str, default "euler"
-        The integration rule, as in :class:`IntegrateStep`:
+    method : IntegrationMethod or str, default IntegrationMethod.EULER
+        The integration rule, a member of :class:`IntegrationMethod` or its
+        string, as in :class:`IntegrateStep`:
 
         * ``"euler"`` or ``"rectangular"``: the rectangle of each step.
         * ``"trapezoidal"``: the trapezoid between each step and the one
@@ -688,7 +733,7 @@ class Integrate:
     def __init__(
         self,
         dt: float = 1.0,
-        method: str = "euler",
+        method: IntegrationMethod | str = IntegrationMethod.EULER,
         init: Stream | float | None = None,
         init_rate: Stream | float | None = None,
         name: str | None = None,
@@ -698,10 +743,13 @@ class Integrate:
         self._dt = _validate_dt(dt, "Integrate")
         self._method = _validate_method(method, "Integrate")
         self._init = _validate_init("Integrate", init)
-        if init_rate is not None and _METHOD_RULE[method] != "trapezoidal":
+        if (
+            init_rate is not None
+            and _METHOD_RULE[self._method] != IntegrationMethod.TRAPEZOIDAL
+        ):
             raise ValueError(
                 "Integrate: init_rate is the rate before the first step, which "
-                f"only the trapezoidal method reads, not {method!r}."
+                f"only the trapezoidal method reads, not {self._method.value!r}."
             )
         self._init_rate = _validate_init("Integrate", init_rate, "init_rate")
         self.name = next_name("Integrate") if name is None else name
@@ -712,7 +760,7 @@ class Integrate:
             self,
             name=self.name,
             dt=self._dt,
-            method=self._method,
+            method=self._method.value,
             init=self._init,
             init_rate=self._init_rate,
         )
@@ -757,7 +805,7 @@ class Integrate:
         # feedback would read it from.
         integral = hidden(f"{call_name}_{rate.name}")
         history = [integral]
-        if _METHOD_RULE[self._method] == "trapezoidal":
+        if _METHOD_RULE[self._method] == IntegrationMethod.TRAPEZOIDAL:
             previous = hidden(f"{call_name}_{rate.name}_rate")
             previous._feed_back(rate, init=self._init_rate)
             history.append(previous)

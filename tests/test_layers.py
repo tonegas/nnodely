@@ -213,6 +213,29 @@ def test_polynomial_interpolation(tmp_path):
     np.testing.assert_allclose(restored_result, expected, rtol=1e-5, atol=1e-5)
 
 
+def test_interpolation_mode_is_a_member_or_its_string():
+    from nnodely import InterpolationMode
+
+    x = Input("mode_member_x", tw=1)
+    modes = [InterpolationMode.POLYNOMIAL, "polynomial", "POLYNOMIAL"]
+    layers = [
+        Interpolation([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=mode) for mode in modes
+    ]
+    model = Modely(
+        "mode_member",
+        inputs=[x],
+        outputs=[
+            Output(f"mode_member_{i}", layer(x)) for i, layer in enumerate(layers)
+        ],
+    ).build()
+    result = model({"mode_member_x": np.array([[[1.5]]], dtype=np.float32)})
+    for index in range(len(modes)):
+        np.testing.assert_allclose(
+            to_numpy(result[f"mode_member_{index}"]).item(), 2.25, rtol=1e-6
+        )
+    assert all(type(layer.get_config()["mode"]) is str for layer in layers)
+
+
 @pytest.mark.parametrize(
     ("x_points", "y_points", "mode"),
     [

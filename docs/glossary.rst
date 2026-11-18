@@ -8,6 +8,19 @@ error messages. Where a method name uses another word, as ``minimize`` and
 .. glossary::
    :sorted:
 
+   option
+      An argument that takes one of a fixed set of names, such as the
+      ``method`` of :class:`~nnodely.IntegrateStep`. Each set is a
+      ``StrEnum`` of the module that uses it, such as
+      :class:`~nnodely.IntegrationMethod`: its members are the strings
+      themselves, so ``method="trapezoidal"`` and
+      ``method=IntegrationMethod.TRAPEZOIDAL`` are the same, and the model
+      saves the string. The others are :class:`~nnodely.OdeMethod`,
+      :class:`~nnodely.InterpolationMode`, :class:`~nnodely.MembershipName`,
+      :class:`~nnodely.EquationFunction`, :class:`~nnodely.PrinterName` and
+      :class:`~nnodely.OnShort`. ``seq`` is no option: a number, or ``"dyn"``
+      for a dynamic sequence.
+
    stream
       A node of the graph of a model: an :class:`~nnodely.Input`, a
       :class:`~nnodely.Parameter`, a :class:`~nnodely.Constant`, or the result

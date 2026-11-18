@@ -134,7 +134,8 @@ The arguments, with their defaults:
 ``early_stopping=None``, ``early_stopping_kwargs=None``
     When to stop before ``epochs`` (see Step 5).
 ``printer="legacy"``
-    How the progress is shown:
+    How the progress is shown, by a name, a string or a member of
+    :class:`~nnodely.PrinterName` (``PrinterName.TINY``):
 
     - ``"legacy"``: a table of the losses of every objective;
     - ``"tiny"``: one compact block;

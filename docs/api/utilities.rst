@@ -34,7 +34,8 @@ Training printers
 -----------------
 
 These Keras callbacks show the progress of a training. Select one by name with
-the ``printer`` argument of :meth:`Modely.train`, or create one and pass it.
+the ``printer`` argument of :meth:`Modely.train`, a member of
+:class:`PrinterName` or its string, or create one and pass it.
 
 .. autosummary::
    :toctree: generated
@@ -43,3 +44,4 @@ the ``printer`` argument of :meth:`Modely.train`, or create one and pass it.
    TinyPrinter
    LegacyPrinter
    NNodelyPrinter
+   PrinterName

@@ -195,6 +195,22 @@ def test_train_resolves_the_printer_argument():
         _resolve_printer("loud", 10, model._minimizers, model.name)
 
 
+def test_a_printer_is_named_by_a_member_of_printer_name_or_its_string():
+    from nnodely import PrinterName
+
+    model, _ = _single_minimizer_model()
+    for name, kind in (
+        (PrinterName.TINY, TinyPrinter),
+        (PrinterName.LEGACY, LegacyPrinter),
+        (PrinterName.NNODELY, NNodelyPrinter),
+    ):
+        for printer in (name, name.value):
+            resolved = _resolve_printer(printer, 10, model._minimizers, model.name)
+            assert type(resolved) is kind
+    with pytest.raises(ValueError, match="Unknown printer 'loud': expected 'tiny'"):
+        _resolve_printer("loud", 10, model._minimizers, model.name)
+
+
 def test_tiny_printer_writes_no_terminal_codes_into_a_file(capsys):
     # Once cleared the screen unconditionally: a redirected run was full of
     # escape sequences.

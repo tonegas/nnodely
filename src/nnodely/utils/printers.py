@@ -14,6 +14,7 @@ import shutil
 import sys
 import time
 from collections import deque
+from enum import StrEnum
 from typing import Any, Sequence
 
 import keras
@@ -27,8 +28,44 @@ _CELL = 9
 _EPOCH_CELL = 10
 
 
+class PrinterName(StrEnum):
+    """The printers :meth:`Modely.train` makes by name, ``printer=``.
+
+    A member is also the string of its value: ``PrinterName.TINY`` and
+    ``"tiny"`` are the same ``printer``.
+
+    Attributes
+    ----------
+    TINY
+        ``"tiny"``: a :class:`TinyPrinter`, a short summary of the latest
+        epoch.
+    LEGACY
+        ``"legacy"``: a :class:`LegacyPrinter`, a table with a row per epoch.
+    NNODELY
+        ``"nnodely"``: a :class:`NNodelyPrinter`, a live dashboard.
+
+    See Also
+    --------
+    Modely.train : Train a model, with a printer of its progress.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import PrinterName
+    >>> PrinterName.TINY == "tiny"
+    True
+    >>> [printer.value for printer in PrinterName]
+    ['tiny', 'legacy', 'nnodely']
+
+    .. versionadded:: 2.0
+    """
+
+    TINY = "tiny"
+    LEGACY = "legacy"
+    NNODELY = "nnodely"
+
+
 def _resolve_printer(
-    printer: str | keras.callbacks.Callback | None,
+    printer: PrinterName | str | keras.callbacks.Callback | None,
     epochs: int,
     minimizers: Sequence[dict[str, Any]] = (),
     name: str = "model",
@@ -38,23 +75,19 @@ def _resolve_printer(
         return printer
     if printer is None:
         return keras.callbacks.Callback()
-    if printer == "tiny":
+    try:
+        printer = PrinterName(printer)
+    except ValueError:
+        raise ValueError(
+            f"Unknown printer {printer!r}: expected 'tiny', 'legacy', "
+            "'nnodely', None, or a keras.callbacks.Callback."
+        ) from None
+    names = [minimizer["name"] for minimizer in minimizers]
+    if printer is PrinterName.TINY:
         return TinyPrinter(epochs=epochs)
-    if printer == "legacy":
-        return LegacyPrinter(
-            epochs=epochs,
-            minimizers=[minimizer["name"] for minimizer in minimizers],
-        )
-    if printer == "nnodely":
-        return NNodelyPrinter(
-            epochs=epochs,
-            minimizers=[minimizer["name"] for minimizer in minimizers],
-            model_name=name,
-        )
-    raise ValueError(
-        f"Unknown printer {printer!r}: expected 'tiny', 'legacy', "
-        "'nnodely', None, or a keras.callbacks.Callback."
-    )
+    if printer is PrinterName.LEGACY:
+        return LegacyPrinter(epochs=epochs, minimizers=names)
+    return NNodelyPrinter(epochs=epochs, minimizers=names, model_name=name)
 
 
 class TinyPrinter(keras.callbacks.Callback):

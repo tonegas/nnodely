@@ -158,20 +158,24 @@ We use:
   CustomType: TypeAlias = list[dict[str, list[int]]]
   ```
 
-- Heavily prefer strong typing (e.g., `Enum` and `dataclass`), for example:
+- Heavily prefer strong typing (e.g., `Enum` and `dataclass`). A public
+  option with a fixed set of names is a `StrEnum`, defined in the module that
+  uses it and exported by `nnodely`. The function takes the member or its
+  string, and resolves it once, where it enters:
 
   ```python
-  # Instead of this
-  def func(flag: str) -> None:
-    ...
+  class IntegrationMethod(StrEnum):
+      EULER = "euler"
+      TRAPEZOIDAL = "trapezoidal"
 
-  # Do this
-  class Flag(Enum):
-    ...
-
-  def func(flag: Flag) -> None:
-    ...
+  def __init__(self, method: IntegrationMethod | str = IntegrationMethod.EULER):
+      self._method = IntegrationMethod(method)  # an unknown name fails here
   ```
+
+  Configs, error messages and printed tables hold `member.value`, so a saved
+  model holds plain strings. Open sets stay strings, as Keras keeps them:
+  optimizer, loss and initializer names. So does a word among numbers, such
+  as `seq=-1` or `"dyn"`, which a user writes without importing anything.
 
 ---
 

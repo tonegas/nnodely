@@ -179,7 +179,8 @@ A window never spans two simulations:
    4
 
 ``on_short`` decides what happens to a simulation too short to give one
-sample: ``"error"``, the default, raises, and ``"skip"`` leaves it out.
+sample: ``"error"``, the default, raises, and ``"skip"`` leaves it out. The
+members of :class:`~nnodely.OnShort` are the same, ``on_short=OnShort.SKIP``.
 
 Step 6: sequences
 -----------------

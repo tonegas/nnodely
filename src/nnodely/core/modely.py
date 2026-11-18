@@ -41,7 +41,7 @@ from nnodely.utils.utils import (
     _resolve_loss,
     _resolve_optimizer,
 )
-from nnodely.utils.printers import _resolve_printer, _table
+from nnodely.utils.printers import PrinterName, _resolve_printer, _table
 from nnodely.core.registry import ModelSerializer
 from nnodely.core.stream import Stream, Node, object_repr
 from nnodely.layers.parameter import Constant, Parameter, Parameters, _Value
@@ -2442,7 +2442,9 @@ class Modely:
         shuffle: bool = True,
         optimizer_kwargs: dict[str, Any] | None = None,
         early_stopping_kwargs: dict[str, Any] | None = None,
-        printer: str | keras.callbacks.Callback | None = "legacy",
+        printer: PrinterName | str | keras.callbacks.Callback | None = (
+            PrinterName.LEGACY
+        ),
         jit_compile: str | bool = "auto",
     ):
         r"""Train the built model on its objectives, and return the losses of
@@ -2499,8 +2501,9 @@ class Modely:
             More arguments of the ``EarlyStopping`` that a name given as
             ``early_stopping`` makes, such as
             ``{"patience": 10, "restore_best_weights": True}``.
-        printer : str, keras.callbacks.Callback or None, default "legacy"
-            How progress is shown:
+        printer : PrinterName, str, keras.callbacks.Callback or None, default PrinterName.LEGACY
+            How progress is shown. A name is a member of :class:`PrinterName`
+            or its string:
 
             - ``"legacy"``: a table of the losses of every objective, a row
               per epoch, drawn as the tables of a model are;

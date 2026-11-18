@@ -2,19 +2,48 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import keras
 import numpy as np
 
 from nnodely.core.layer import Layer
 
 
-_AVAILABLE_MODES = ("linear", "polynomial")
+class InterpolationMode(StrEnum):
+    """How :class:`Interpolation` joins its points.
+
+    A member is also the string of its value: ``InterpolationMode.POLYNOMIAL``
+    and ``"polynomial"`` are the same ``mode``, in upper or lower case.
+
+    Attributes
+    ----------
+    LINEAR
+        ``"linear"``: a straight segment between each two neighboring points.
+    POLYNOMIAL
+        ``"polynomial"``: the one polynomial through every point.
+
+    See Also
+    --------
+    Interpolation : A lookup table between points.
+
+    Basic Examples
+    --------------
+    >>> from nnodely import Interpolation, InterpolationMode
+    >>> InterpolationMode.POLYNOMIAL == "polynomial"
+    True
+    >>> curve = Interpolation([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], mode=InterpolationMode.POLYNOMIAL)
+
+    .. versionadded:: 2.0
+    """
+
+    LINEAR = "linear"
+    POLYNOMIAL = "polynomial"
 
 
 def _prepare_points(x_points, y_points, mode):
     x_values = np.asarray(x_points, dtype=np.float64)
     y_values = np.asarray(y_points, dtype=np.float64)
-    mode = str(mode).lower()
 
     if x_values.ndim != 1 or y_values.ndim != 1:
         raise ValueError("Interpolation points must be one-dimensional.")
@@ -22,10 +51,13 @@ def _prepare_points(x_points, y_points, mode):
         raise ValueError("x_points and y_points must have the same length.")
     if len(x_values) < 2:
         raise ValueError("Interpolation requires at least two points.")
-    if mode not in _AVAILABLE_MODES:
+    try:
+        mode = InterpolationMode(str(mode).lower())
+    except ValueError:
+        names = tuple(member.value for member in InterpolationMode)
         raise ValueError(
-            f"Interpolation mode must be one of {_AVAILABLE_MODES}, got {mode!r}."
-        )
+            f"Interpolation mode must be one of {names}, got {str(mode).lower()!r}."
+        ) from None
     if not np.all(np.isfinite(x_values)) or not np.all(np.isfinite(y_values)):
         raise ValueError("Interpolation points must contain only finite values.")
 
@@ -47,13 +79,13 @@ class InterpolationImpl(keras.layers.Layer):
         x_values, y_values, mode = _prepare_points(x_points, y_points, mode)
         self.x_points = x_values.tolist()
         self.y_points = y_values.tolist()
-        self.mode = mode
+        self.mode = mode.value
         self.coefficients = (
             np.linalg.solve(
                 np.vander(x_values, N=len(x_values), increasing=True),
                 y_values,
             ).tolist()
-            if mode == "polynomial"
+            if mode == InterpolationMode.POLYNOMIAL
             else None
         )
 
@@ -63,7 +95,7 @@ class InterpolationImpl(keras.layers.Layer):
         upper = keras.ops.cast(self.x_points[-1], dtype)
         values = keras.ops.clip(inputs, lower, upper)
 
-        if self.mode == "polynomial":
+        if self.mode == InterpolationMode.POLYNOMIAL:
             coefficients = self.coefficients
             if coefficients is None:
                 raise RuntimeError("Polynomial coefficients were not initialized.")
@@ -128,8 +160,9 @@ class Interpolation(Layer):
         ``x_points``, each keeping its ``y_points`` value.
     y_points : list of float
         The values at ``x_points``, as many, finite.
-    mode : str, default "linear"
-        How the curve joins the points, in upper or lower case:
+    mode : InterpolationMode or str, default InterpolationMode.LINEAR
+        How the curve joins the points, a member of
+        :class:`InterpolationMode` or its string, in upper or lower case:
 
         - ``"linear"``: a straight segment between each two neighboring
           points.
@@ -279,13 +312,13 @@ class Interpolation(Layer):
         self,
         x_points: list[float],
         y_points: list[float],
-        mode: str = "linear",
+        mode: InterpolationMode | str = InterpolationMode.LINEAR,
         name: str | None = None,
     ):
         x_values, y_values, mode = _prepare_points(x_points, y_points, mode)
         self._x_points = x_values.tolist()
         self._y_points = y_values.tolist()
-        self._mode = mode
+        self._mode = mode.value
         super().__init__(
             name=name,
             x_points=self._x_points,

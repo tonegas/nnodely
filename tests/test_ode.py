@@ -56,6 +56,16 @@ def test_ode_unknown_method():
         Ode(_decay, Input("x_bad_method", dim=1, tw=1), 0.1, method="dopri5")
 
 
+def test_ode_takes_a_member_of_ode_method_or_its_string():
+    from nnodely import OdeMethod
+
+    assert _integrate_decay(OdeMethod.HEUN, 10) == _integrate_decay("heun", 10)
+    with pytest.raises(
+        ValueError, match=r"choose one of \['euler', 'heun', 'midpoint', 'rk4'\]"
+    ):
+        Ode(_decay, Input("x_member", dim=1, tw=1), 0.1, method="dopri5")
+
+
 def test_ode_derivative_count_mismatch():
     x = Input("x_mismatch", dim=1, tw=1)
     y = Input("y_mismatch", dim=1, tw=1)
